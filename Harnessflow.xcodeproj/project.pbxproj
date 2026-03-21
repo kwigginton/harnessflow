@@ -1,0 +1,285 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00100010000000000000001 /* HarnessflowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000001 /* HarnessflowApp.swift */; };
+		A00100010000000000000002 /* ModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000002 /* ModelContainer.swift */; };
+		A00100010000000000000003 /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000003 /* PersistenceModels.swift */; };
+		A00100010000000000000004 /* PersistenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000004 /* PersistenceStore.swift */; };
+		A00100010000000000000005 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000005 /* AppStore.swift */; };
+		A00100010000000000000006 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000006 /* ContentView.swift */; };
+		A00100010000000000000007 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000007 /* BoardView.swift */; };
+		A00100010000000000000008 /* TicketDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000008 /* TicketDetailView.swift */; };
+		A00100010000000000000009 /* CreateTicketSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000009 /* CreateTicketSheet.swift */; };
+		A0010001000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000A /* SettingsView.swift */; };
+		A0010001000000000000000B /* HarnessflowCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00B00010000000000000001 /* HarnessflowCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00200010000000000000001 /* HarnessflowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessflowApp.swift; sourceTree = "<group>"; };
+		A00200010000000000000002 /* ModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelContainer.swift; sourceTree = "<group>"; };
+		A00200010000000000000003 /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
+		A00200010000000000000004 /* PersistenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceStore.swift; sourceTree = "<group>"; };
+		A00200010000000000000005 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		A00200010000000000000006 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A00200010000000000000007 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		A00200010000000000000008 /* TicketDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TicketDetailView.swift; sourceTree = "<group>"; };
+		A00200010000000000000009 /* CreateTicketSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateTicketSheet.swift; sourceTree = "<group>"; };
+		A0020001000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A0020001000000000000000B /* Harnessflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Harnessflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A00300010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0010001000000000000000B /* HarnessflowCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00400010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A00400010000000000000002 /* Harnessflow */,
+				A00400010000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00400010000000000000002 /* Harnessflow */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000001 /* HarnessflowApp.swift */,
+				A00200010000000000000002 /* ModelContainer.swift */,
+				A00200010000000000000003 /* PersistenceModels.swift */,
+				A00200010000000000000004 /* PersistenceStore.swift */,
+				A00200010000000000000005 /* AppStore.swift */,
+				A00200010000000000000006 /* ContentView.swift */,
+				A00200010000000000000007 /* BoardView.swift */,
+				A00200010000000000000008 /* TicketDetailView.swift */,
+				A00200010000000000000009 /* CreateTicketSheet.swift */,
+				A0020001000000000000000A /* SettingsView.swift */,
+			);
+			path = Harnessflow;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A0020001000000000000000B /* Harnessflow.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00500010000000000000001 /* Harnessflow */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00800010000000000000002 /* Build configuration list for PBXNativeTarget "Harnessflow" */;
+			buildPhases = (
+				A00600010000000000000001 /* Sources */,
+				A00300010000000000000001 /* Frameworks */,
+				A00600010000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Harnessflow;
+			packageProductDependencies = (
+				A00B00010000000000000001 /* HarnessflowCore */,
+			);
+			productName = Harnessflow;
+			productReference = A0020001000000000000000B /* Harnessflow.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00700010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					A00500010000000000000001 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+				};
+			};
+			buildConfigurationList = A00800010000000000000001 /* Build configuration list for PBXProject "Harnessflow" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00400010000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A00A00010000000000000001 /* XCLocalSwiftPackageReference "HarnessflowCore" */,
+			);
+			preferredProjectObjectVersion = 60;
+			productRefGroup = A00400010000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00500010000000000000001 /* Harnessflow */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A00600010000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00600010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00100010000000000000005 /* AppStore.swift in Sources */,
+				A00100010000000000000007 /* BoardView.swift in Sources */,
+				A00100010000000000000006 /* ContentView.swift in Sources */,
+				A00100010000000000000009 /* CreateTicketSheet.swift in Sources */,
+				A00100010000000000000001 /* HarnessflowApp.swift in Sources */,
+				A00100010000000000000002 /* ModelContainer.swift in Sources */,
+				A00100010000000000000003 /* PersistenceModels.swift in Sources */,
+				A00100010000000000000004 /* PersistenceStore.swift in Sources */,
+				A0010001000000000000000A /* SettingsView.swift in Sources */,
+				A00100010000000000000008 /* TicketDetailView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00900010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A00900010000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		A00900010000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kenw.harnessflow;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A00900010000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kenw.harnessflow;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00800010000000000000001 /* Build configuration list for PBXProject "Harnessflow" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00900010000000000000001 /* Debug */,
+				A00900010000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00800010000000000000002 /* Build configuration list for PBXNativeTarget "Harnessflow" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00900010000000000000003 /* Debug */,
+				A00900010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A00A00010000000000000001 /* XCLocalSwiftPackageReference "HarnessflowCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = HarnessflowCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A00B00010000000000000001 /* HarnessflowCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00A00010000000000000001 /* XCLocalSwiftPackageReference "HarnessflowCore" */;
+			productName = HarnessflowCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A00700010000000000000001 /* Project object */;
+}

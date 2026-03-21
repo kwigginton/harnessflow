@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.derivedData/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.swp
+*.tmp
+HarnessflowCore/.build/
