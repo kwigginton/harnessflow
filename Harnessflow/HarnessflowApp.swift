@@ -22,6 +22,7 @@ struct HarnessflowApp: App {
             ContentView()
                 .environmentObject(store)
         }
+        .defaultSize(width: 1440, height: 900)
         .modelContainer(modelContainer)
 
         Settings {
@@ -30,4 +31,3 @@ struct HarnessflowApp: App {
         }
     }
 }
-

@@ -5,16 +5,20 @@ struct BoardView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 18) {
-                ForEach(TicketPhase.allCases) { phase in
-                    PhaseColumnView(
-                        phase: phase,
-                        tickets: store.tickets.filter { $0.column == phase }
-                    )
+        GeometryReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    ForEach(TicketPhase.allCases) { phase in
+                        PhaseColumnView(
+                            phase: phase,
+                            tickets: store.tickets.filter { $0.column == phase }
+                        )
+                    }
                 }
+                .frame(minHeight: max(proxy.size.height - 40, 0), alignment: .topLeading)
+                .padding(20)
             }
-            .padding(20)
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -29,8 +33,7 @@ private struct PhaseColumnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label(phase.title, systemImage: phase.symbolName)
-                    .font(.headline)
+                PhaseLabel(phase: phase, font: .headline)
                 Spacer()
                 Text("\(tickets.count)")
                     .font(.callout.monospacedDigit())
@@ -49,10 +52,11 @@ private struct PhaseColumnView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 140, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(14)
-        .frame(width: 260, alignment: .topLeading)
+        .frame(width: 240, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(isTargeted ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor))

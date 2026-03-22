@@ -1,0 +1,11 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="edgeGlow" x="0" y="0" width="128" height="128" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2.15"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="22" fill="white" fill-opacity="0.22" filter="url(#edgeGlow)"/>
+  <rect x="10" y="10" width="108" height="108" rx="20" fill="#102446"/>
+  <path d="M24 64C31 64 36 62 40 62C44 62 44 40 52 40C61 40 58 64 64 64C70 64 67 88 76 88C84 88 84 66 88 66C92 66 97 64 104 64" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 64C31 64 36 62 40 62C44 62 44 40 52 40C61 40 58 64 64 64C70 64 67 88 76 88C84 88 84 66 88 66C92 66 97 64 104 64" stroke="#A7E6AE" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

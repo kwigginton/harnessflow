@@ -1,0 +1,4 @@
+module HarnessflowCore {
+header "HarnessflowCore-Swift.h"
+export *
+}

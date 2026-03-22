@@ -14,7 +14,10 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "HarnessflowCore"
+            name: "HarnessflowCore",
+            resources: [
+                .process("Resources"),
+            ]
         ),
         .testTarget(
             name: "HarnessflowCoreTests",

@@ -50,6 +50,8 @@ public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var phase: TicketPhase
     public var model: String
+    public var authMethod: CodexAuthMethod
+    public var didFallbackFromSubscription: Bool
     public var prompt: String
     public var output: String
     public var errorOutput: String
@@ -61,6 +63,8 @@ public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
         id: UUID = UUID(),
         phase: TicketPhase,
         model: String,
+        authMethod: CodexAuthMethod = .unknown,
+        didFallbackFromSubscription: Bool = false,
         prompt: String,
         output: String,
         errorOutput: String,
@@ -71,6 +75,8 @@ public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
         self.id = id
         self.phase = phase
         self.model = model
+        self.authMethod = authMethod
+        self.didFallbackFromSubscription = didFallbackFromSubscription
         self.prompt = prompt
         self.output = output
         self.errorOutput = errorOutput
@@ -89,9 +95,13 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
     public var lastCompletedAt: Date?
     public var capturedOutput: String
     public var capturedError: String
+    public var deliverableMarkdown: String
+    public var deliverableGeneratedAt: Date?
+    public var deliverableSourceRunID: UUID?
     public var runs: [PhaseRun]
 
     public var id: TicketPhase { phase }
+    public var hasDeliverable: Bool { deliverableMarkdown.isEmpty == false }
 
     public init(
         phase: TicketPhase,
@@ -102,6 +112,9 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         lastCompletedAt: Date? = nil,
         capturedOutput: String = "",
         capturedError: String = "",
+        deliverableMarkdown: String = "",
+        deliverableGeneratedAt: Date? = nil,
+        deliverableSourceRunID: UUID? = nil,
         runs: [PhaseRun] = []
     ) {
         self.phase = phase
@@ -112,6 +125,9 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         self.lastCompletedAt = lastCompletedAt
         self.capturedOutput = capturedOutput
         self.capturedError = capturedError
+        self.deliverableMarkdown = deliverableMarkdown
+        self.deliverableGeneratedAt = deliverableGeneratedAt
+        self.deliverableSourceRunID = deliverableSourceRunID
         self.runs = runs
     }
 
@@ -126,6 +142,9 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         lastCompletedAt = nil
         capturedOutput = ""
         capturedError = ""
+        deliverableMarkdown = ""
+        deliverableGeneratedAt = nil
+        deliverableSourceRunID = nil
     }
 }
 
@@ -175,4 +194,3 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
         }
     }
 }
-

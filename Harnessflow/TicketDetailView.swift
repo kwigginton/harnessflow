@@ -5,21 +5,30 @@ struct TicketDetailView: View {
     @EnvironmentObject private var store: AppStore
     let ticket: Ticket?
     @State private var promptDraft = ""
+    @State private var expandedOutputPhases = Set<TicketPhase>()
+
+    private var paneBackground: Color {
+        Color(nsColor: .underPageBackgroundColor)
+    }
 
     var body: some View {
-        Group {
+        ZStack {
+            paneBackground
+
             if let ticket {
                 detail(for: ticket)
             } else {
                 ContentUnavailableView(
                     "Select a Ticket",
                     systemImage: "rectangle.stack",
-                    description: Text("Choose a card from the board to edit its prompt, inspect history, or run the current phase.")
+                    description: Text("Choose a card from the board to edit its phase addendum, inspect outputs, or run the current phase.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                .padding(20)
             }
         }
-        .padding(20)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -39,8 +48,7 @@ struct TicketDetailView: View {
                     }
 
                     HStack(spacing: 10) {
-                        Label(phase.title, systemImage: phase.symbolName)
-                            .font(.callout.weight(.semibold))
+                        PhaseLabel(phase: phase, font: .callout.weight(.semibold), iconSize: 20)
                         StatusBadge(state: phaseState.executionState)
                         Text("Model: \(store.settings.phaseModels.model(for: phase))")
                             .font(.footnote)
@@ -48,14 +56,14 @@ struct TicketDetailView: View {
                     }
                 }
 
-                GroupBox("Agent Prompt") {
+                GroupBox("Phase Addendum") {
                     VStack(alignment: .leading, spacing: 12) {
                         TextEditor(text: $promptDraft)
                             .font(.body.monospaced())
                             .frame(minHeight: 140)
 
                         HStack {
-                            Button("Save Prompt") {
+                            Button("Save Addendum") {
                                 store.savePrompt(for: ticket.id, prompt: promptDraft)
                             }
 
@@ -73,6 +81,40 @@ struct TicketDetailView: View {
                             .disabled(phaseState.executionState == .running)
 
                             Spacer()
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+
+                GroupBox("Phase Outputs") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(TicketPhase.allCases) { outputPhase in
+                            let outputState = ticket.phaseState(for: outputPhase)
+
+                            DisclosureGroup(
+                                isExpanded: outputBinding(for: outputPhase)
+                            ) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    if let generatedAt = outputState.deliverableGeneratedAt {
+                                        Text("Generated: \(generatedAt.formatted(date: .numeric, time: .shortened))")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    if outputState.deliverableMarkdown.isEmpty == false {
+                                        OutputBlock(title: "Deliverable", text: outputState.deliverableMarkdown)
+                                    } else {
+                                        Text("No persisted deliverable for this phase yet.")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.top, 8)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    PhaseLabel(phase: outputPhase, font: .callout.weight(.semibold), iconSize: 18)
+                                    StatusBadge(state: outputState.executionState)
+                                }
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -142,18 +184,36 @@ struct TicketDetailView: View {
                     .padding(.top, 4)
                 }
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             promptDraft = phaseState.prompt
+            expandedOutputPhases = []
         }
         .onChange(of: ticket.id) { _, _ in
             promptDraft = ticket.phaseState(for: ticket.column).prompt
+            expandedOutputPhases = []
         }
         .onChange(of: phaseState.prompt) { _, _ in
             if phaseState.prompt != promptDraft, phaseState.executionState != .running {
                 promptDraft = phaseState.prompt
             }
         }
+    }
+
+    private func outputBinding(for phase: TicketPhase) -> Binding<Bool> {
+        Binding(
+            get: { expandedOutputPhases.contains(phase) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedOutputPhases.insert(phase)
+                } else {
+                    expandedOutputPhases.remove(phase)
+                }
+            }
+        )
     }
 }
 

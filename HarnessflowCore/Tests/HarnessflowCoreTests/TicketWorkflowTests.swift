@@ -44,6 +44,8 @@ struct TicketWorkflowTests {
         implement.lastStartedAt = .distantPast
         implement.lastCompletedAt = .now
         implement.capturedOutput = "done"
+        implement.deliverableMarkdown = "## Implemented"
+        implement.deliverableGeneratedAt = .now
         implement.runs = [run]
         ticket.updatePhaseState(implement)
 
@@ -53,6 +55,7 @@ struct TicketWorkflowTests {
         #expect(moved.column == .plan)
         #expect(reset.executionState == .idle)
         #expect(reset.capturedOutput.isEmpty)
+        #expect(reset.deliverableMarkdown.isEmpty)
         #expect(reset.runs.count == 1)
     }
 
@@ -69,4 +72,3 @@ struct TicketWorkflowTests {
         #expect(unchanged.phaseState(for: .review).executionState == .completed)
     }
 }
-

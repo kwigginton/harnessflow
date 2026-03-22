@@ -2,6 +2,17 @@ import Foundation
 import SwiftData
 import HarnessflowCore
 
+enum PersistenceStoreError: LocalizedError {
+    case missingProject(UUID)
+
+    var errorDescription: String? {
+        switch self {
+        case let .missingProject(id):
+            "Project not found: \(id.uuidString)"
+        }
+    }
+}
+
 @MainActor
 final class PersistenceStore {
     private let modelContainer: ModelContainer
@@ -10,43 +21,108 @@ final class PersistenceStore {
     init(modelContainer: ModelContainer, defaultWorkingDirectory: String) {
         self.modelContainer = modelContainer
         self.defaultWorkingDirectory = defaultWorkingDirectory
-        try? bootstrapSettingsIfNeeded()
+        try? bootstrapIfNeeded()
     }
 
     var context: ModelContext {
         modelContainer.mainContext
     }
 
-    func loadTickets() throws -> [Ticket] {
+    func loadProjects() throws -> [ProjectRecord] {
+        try bootstrapIfNeeded()
+        let descriptor = FetchDescriptor<ProjectEntity>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        return try context.fetch(descriptor).map { $0.toRecord() }
+    }
+
+    func loadTickets(projectID: UUID) throws -> [Ticket] {
+        try bootstrapIfNeeded()
         let descriptor = FetchDescriptor<TicketEntity>(
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        return try context.fetch(descriptor).map { $0.toDomain() }
+        return try context.fetch(descriptor)
+            .filter { $0.project?.id == projectID }
+            .map { $0.toDomain() }
     }
 
     func loadSettings() throws -> AppSettings {
-        try bootstrapSettingsIfNeeded()
+        try bootstrapIfNeeded()
         return try fetchSettingsEntity()?.toDomain()
             ?? AppSettings(defaultWorkingDirectory: defaultWorkingDirectory)
     }
 
-    func ticket(withID id: UUID) throws -> Ticket? {
-        try fetchTicketEntity(id: id)?.toDomain()
+    func loadSelectedProjectID() throws -> UUID? {
+        try bootstrapIfNeeded()
+        return try fetchSettingsEntity()?.selectedProjectID
     }
 
-    func createTicket(title: String, detailsText: String) throws -> Ticket {
+    func ticket(withID id: UUID) throws -> Ticket? {
+        try bootstrapIfNeeded()
+        return try fetchTicketEntity(id: id)?.toDomain()
+    }
+
+    func createProject(name: String, workingDirectory: String) throws -> ProjectRecord {
+        try bootstrapIfNeeded()
+        let now = Date()
+        let entity = ProjectEntity(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            workingDirectory: workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
+            createdAt: now,
+            updatedAt: now
+        )
+        context.insert(entity)
+        try context.save()
+        return entity.toRecord()
+    }
+
+    func updateProjectDirectory(projectID: UUID, workingDirectory: String) throws -> ProjectRecord {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchProjectEntity(id: projectID) else {
+            throw PersistenceStoreError.missingProject(projectID)
+        }
+
+        entity.update(
+            name: entity.name,
+            workingDirectory: workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        try context.save()
+        return entity.toRecord()
+    }
+
+    func saveSelectedProjectID(_ id: UUID?) throws {
+        try bootstrapIfNeeded()
+        if let entity = try fetchSettingsEntity() {
+            entity.selectedProjectID = id
+            try context.save()
+        }
+    }
+
+    func createTicket(
+        title: String,
+        detailsText: String,
+        projectID: UUID,
+        initialPhase: TicketPhase = .research
+    ) throws -> Ticket {
+        try bootstrapIfNeeded()
+        guard let project = try fetchProjectEntity(id: projectID) else {
+            throw PersistenceStoreError.missingProject(projectID)
+        }
+
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let ticket = Ticket(
             title: trimmedTitle,
-            detailsText: detailsText.trimmingCharacters(in: .whitespacesAndNewlines)
+            detailsText: detailsText.trimmingCharacters(in: .whitespacesAndNewlines),
+            column: initialPhase
         )
-        let entity = TicketEntity(ticket: ticket)
+        let entity = TicketEntity(ticket: ticket, project: project)
         context.insert(entity)
         try context.save()
         return ticket
     }
 
     func savePrompt(ticketID: UUID, phase: TicketPhase, prompt: String) throws {
+        try bootstrapIfNeeded()
         guard let entity = try fetchTicketEntity(id: ticketID) else {
             return
         }
@@ -58,22 +134,37 @@ final class PersistenceStore {
         try context.save()
     }
 
-    func upsert(ticket: Ticket) throws {
+    func upsert(ticket: Ticket, projectID: UUID) throws {
+        try bootstrapIfNeeded()
+        let project = try fetchProjectEntity(id: projectID)
+        guard let project else {
+            throw PersistenceStoreError.missingProject(projectID)
+        }
+
         if let entity = try fetchTicketEntity(id: ticket.id) {
             entity.update(from: ticket)
+            entity.project = project
         } else {
-            context.insert(TicketEntity(ticket: ticket))
+            context.insert(TicketEntity(ticket: ticket, project: project))
         }
         try context.save()
     }
 
     func saveSettings(_ settings: AppSettings) throws {
+        try bootstrapIfNeeded()
         if let entity = try fetchSettingsEntity() {
             entity.update(from: settings)
         } else {
             context.insert(SettingsEntity(settings: settings))
         }
         try context.save()
+    }
+
+    private func fetchProjectEntity(id: UUID) throws -> ProjectEntity? {
+        let descriptor = FetchDescriptor<ProjectEntity>(
+            predicate: #Predicate<ProjectEntity> { $0.id == id }
+        )
+        return try context.fetch(descriptor).first
     }
 
     private func fetchTicketEntity(id: UUID) throws -> TicketEntity? {
@@ -90,13 +181,83 @@ final class PersistenceStore {
         return try context.fetch(descriptor).first
     }
 
-    private func bootstrapSettingsIfNeeded() throws {
-        guard try fetchSettingsEntity() == nil else {
-            return
+    private func bootstrapIfNeeded() throws {
+        var didChange = false
+        let settingsEntity: SettingsEntity
+
+        if let existingSettings = try fetchSettingsEntity() {
+            settingsEntity = existingSettings
+        } else {
+            let settings = AppSettings(defaultWorkingDirectory: defaultWorkingDirectory)
+            let entity = SettingsEntity(settings: settings)
+            context.insert(entity)
+            settingsEntity = entity
+            didChange = true
         }
 
-        let settings = AppSettings(defaultWorkingDirectory: defaultWorkingDirectory)
-        context.insert(SettingsEntity(settings: settings))
-        try context.save()
+        let projectDescriptor = FetchDescriptor<ProjectEntity>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        var projects = try context.fetch(projectDescriptor)
+
+        let orphanDescriptor = FetchDescriptor<TicketEntity>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        let orphanTickets = try context.fetch(orphanDescriptor).filter { $0.project == nil }
+
+        if projects.isEmpty {
+            let fallbackDirectory = resolvedDefaultProjectDirectory(from: settingsEntity.defaultWorkingDirectory)
+            let project = ProjectEntity(
+                name: defaultProjectName(for: fallbackDirectory),
+                workingDirectory: fallbackDirectory
+            )
+            context.insert(project)
+            projects = [project]
+            didChange = true
+        }
+
+        if let migrationProject = projects.first, orphanTickets.isEmpty == false {
+            for ticket in orphanTickets {
+                ticket.project = migrationProject
+            }
+            didChange = true
+        }
+
+        let projectIDs = Set(projects.map(\.id))
+        if let selectedProjectID = settingsEntity.selectedProjectID, projectIDs.contains(selectedProjectID) {
+            // Keep the persisted selection.
+        } else {
+            settingsEntity.selectedProjectID = projects.first?.id
+            didChange = true
+        }
+
+        if settingsEntity.fillMissingPhasePromptsFromDefaults() {
+            didChange = true
+        }
+        if settingsEntity.normalizeAuthStrategy() {
+            didChange = true
+        }
+
+        if didChange {
+            try context.save()
+        }
+    }
+
+    private func resolvedDefaultProjectDirectory(from settingsDirectory: String) -> String {
+        let trimmed = settingsDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty == false {
+            return trimmed
+        }
+        return defaultWorkingDirectory
+    }
+
+    private func defaultProjectName(for path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            return "Default Project"
+        }
+
+        let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        return lastPathComponent.isEmpty ? "Default Project" : lastPathComponent
     }
 }

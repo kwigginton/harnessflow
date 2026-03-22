@@ -55,4 +55,3 @@ public struct TicketWorkflow: Sendable {
         return updated
     }
 }
-

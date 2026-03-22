@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -18,6 +18,9 @@
 		A00100010000000000000009 /* CreateTicketSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000009 /* CreateTicketSheet.swift */; };
 		A0010001000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000A /* SettingsView.swift */; };
 		A0010001000000000000000B /* HarnessflowCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00B00010000000000000001 /* HarnessflowCore */; };
+		A0010001000000000000000C /* PhaseIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000C /* PhaseIconView.swift */; };
+		A0010001000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000D /* Assets.xcassets */; };
+		A0010001000000000000000E /* PersistentHSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000E /* PersistentHSplitView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +35,9 @@
 		A00200010000000000000009 /* CreateTicketSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateTicketSheet.swift; sourceTree = "<group>"; };
 		A0020001000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A0020001000000000000000B /* Harnessflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Harnessflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0020001000000000000000C /* PhaseIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseIconView.swift; sourceTree = "<group>"; };
+		A0020001000000000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A0020001000000000000000E /* PersistentHSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistentHSplitView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,7 +72,10 @@
 				A00200010000000000000007 /* BoardView.swift */,
 				A00200010000000000000008 /* TicketDetailView.swift */,
 				A00200010000000000000009 /* CreateTicketSheet.swift */,
+				A0020001000000000000000C /* PhaseIconView.swift */,
+				A0020001000000000000000E /* PersistentHSplitView.swift */,
 				A0020001000000000000000A /* SettingsView.swift */,
+				A0020001000000000000000D /* Assets.xcassets */,
 			);
 			path = Harnessflow;
 			sourceTree = "<group>";
@@ -130,7 +139,6 @@
 			packageReferences = (
 				A00A00010000000000000001 /* XCLocalSwiftPackageReference "HarnessflowCore" */,
 			);
-			preferredProjectObjectVersion = 60;
 			productRefGroup = A00400010000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -145,6 +153,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0010001000000000000000D /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -161,6 +170,8 @@
 				A00100010000000000000009 /* CreateTicketSheet.swift in Sources */,
 				A00100010000000000000001 /* HarnessflowApp.swift in Sources */,
 				A00100010000000000000002 /* ModelContainer.swift in Sources */,
+				A0010001000000000000000C /* PhaseIconView.swift in Sources */,
+				A0010001000000000000000E /* PersistentHSplitView.swift in Sources */,
 				A00100010000000000000003 /* PersistenceModels.swift in Sources */,
 				A00100010000000000000004 /* PersistenceStore.swift in Sources */,
 				A0010001000000000000000A /* SettingsView.swift in Sources */,
@@ -200,6 +211,7 @@
 		A00900010000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -223,6 +235,7 @@
 		A00900010000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
