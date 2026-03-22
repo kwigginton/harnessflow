@@ -210,6 +210,31 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func markRunningClearsPreviouslyOwnedProcess() {
+        var ticket = Ticket(title: "Running", column: .implement)
+        var phaseState = ticket.phaseState(for: .implement)
+        phaseState.ownedProcess = OwnedProcessReference(
+            processIdentifier: 123,
+            executablePath: "/opt/homebrew/bin/codex",
+            launchedAt: .distantPast
+        )
+        ticket.updatePhaseState(phaseState)
+
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .implement,
+            prompt: "Implement",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+
+        let updated = TicketExecutionService().markRunning(ticket: ticket, request: request)
+
+        #expect(updated.phaseState(for: .implement).executionState == .running)
+        #expect(updated.phaseState(for: .implement).ownedProcess == nil)
+    }
+
+    @Test
     func applyFailurePersistsAuthMetadata() {
         let ticket = Ticket(title: "Failure", column: .review)
         let request = AgentRunRequest(

@@ -134,6 +134,26 @@ final class PersistenceStore {
         try context.save()
     }
 
+    func updatePhaseState(
+        ticketID: UUID,
+        phase: TicketPhase,
+        mutate: (inout TicketPhaseState) -> Void
+    ) throws -> Ticket? {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchTicketEntity(id: ticketID) else {
+            return nil
+        }
+
+        var ticket = entity.toDomain()
+        var phaseState = ticket.phaseState(for: phase)
+        mutate(&phaseState)
+        ticket.updatePhaseState(phaseState)
+        ticket.updatedAt = .now
+        entity.update(from: ticket)
+        try context.save()
+        return ticket
+    }
+
     func upsert(ticket: Ticket, projectID: UUID) throws {
         try bootstrapIfNeeded()
         let project = try fetchProjectEntity(id: projectID)
@@ -235,6 +255,9 @@ final class PersistenceStore {
             didChange = true
         }
         if settingsEntity.normalizeAuthStrategy() {
+            didChange = true
+        }
+        if settingsEntity.migrateLegacyCodexModelDefaultsIfNeeded() {
             didChange = true
         }
 

@@ -7,6 +7,8 @@ struct CodexAuthenticationTests {
         let settings = AppSettings(defaultWorkingDirectory: "/tmp")
 
         #expect(settings.codexAuthStrategy == .preferSubscriptionFallbackToAPI)
+        #expect(settings.phaseModels.research == PhaseModelSelection.subscriptionCompatibleDefaultModel)
+        #expect(settings.phaseModels.plan == PhaseModelSelection.subscriptionCompatibleDefaultModel)
     }
 
     @Test

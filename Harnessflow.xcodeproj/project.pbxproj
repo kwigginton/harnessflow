@@ -21,6 +21,8 @@
 		A0010001000000000000000C /* PhaseIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000C /* PhaseIconView.swift */; };
 		A0010001000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000D /* Assets.xcassets */; };
 		A0010001000000000000000E /* PersistentHSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000E /* PersistentHSplitView.swift */; };
+		A0010001000000000000000F /* PhaseOutputWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000F /* PhaseOutputWindowView.swift */; };
+		A00100010000000000000010 /* OwnedProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000010 /* OwnedProcessSupervisor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +40,8 @@
 		A0020001000000000000000C /* PhaseIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseIconView.swift; sourceTree = "<group>"; };
 		A0020001000000000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A0020001000000000000000E /* PersistentHSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistentHSplitView.swift; sourceTree = "<group>"; };
+		A0020001000000000000000F /* PhaseOutputWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseOutputWindowView.swift; sourceTree = "<group>"; };
+		A00200010000000000000010 /* OwnedProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedProcessSupervisor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +77,8 @@
 				A00200010000000000000008 /* TicketDetailView.swift */,
 				A00200010000000000000009 /* CreateTicketSheet.swift */,
 				A0020001000000000000000C /* PhaseIconView.swift */,
+				A00200010000000000000010 /* OwnedProcessSupervisor.swift */,
+				A0020001000000000000000F /* PhaseOutputWindowView.swift */,
 				A0020001000000000000000E /* PersistentHSplitView.swift */,
 				A0020001000000000000000A /* SettingsView.swift */,
 				A0020001000000000000000D /* Assets.xcassets */,
@@ -171,6 +177,8 @@
 				A00100010000000000000001 /* HarnessflowApp.swift in Sources */,
 				A00100010000000000000002 /* ModelContainer.swift in Sources */,
 				A0010001000000000000000C /* PhaseIconView.swift in Sources */,
+				A00100010000000000000010 /* OwnedProcessSupervisor.swift in Sources */,
+				A0010001000000000000000F /* PhaseOutputWindowView.swift in Sources */,
 				A0010001000000000000000E /* PersistentHSplitView.swift in Sources */,
 				A00100010000000000000003 /* PersistenceModels.swift in Sources */,
 				A00100010000000000000004 /* PersistenceStore.swift in Sources */,

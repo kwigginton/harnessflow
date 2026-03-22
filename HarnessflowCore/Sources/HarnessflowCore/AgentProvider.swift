@@ -51,13 +51,38 @@ public struct AgentRunResult: Equatable, Sendable {
     }
 }
 
+public enum AgentOutputChannel: String, Equatable, Sendable {
+    case standardOutput
+    case standardError
+}
+
+public struct AgentOutputChunk: Equatable, Sendable {
+    public var channel: AgentOutputChannel
+    public var text: String
+
+    public init(channel: AgentOutputChannel, text: String) {
+        self.channel = channel
+        self.text = text
+    }
+}
+
 struct CodexCLIInvocation: Equatable, Sendable {
     var arguments: [String]
     var environment: [String: String]
 }
 
 public protocol AgentProvider: Sendable {
-    func run(request: AgentRunRequest) async throws -> AgentRunResult
+    func run(
+        request: AgentRunRequest,
+        onStart: (@Sendable (Int32) -> Void)?,
+        onOutput: (@Sendable (AgentOutputChunk) -> Void)?
+    ) async throws -> AgentRunResult
+}
+
+public extension AgentProvider {
+    func run(request: AgentRunRequest) async throws -> AgentRunResult {
+        try await run(request: request, onStart: nil, onOutput: nil)
+    }
 }
 
 public enum AgentProviderError: LocalizedError, Equatable, Sendable {
@@ -92,7 +117,11 @@ public struct CodexCLIProvider: AgentProvider {
         self.environmentOverrides = environmentOverrides
     }
 
-    public func run(request: AgentRunRequest) async throws -> AgentRunResult {
+    public func run(
+        request: AgentRunRequest,
+        onStart: (@Sendable (Int32) -> Void)? = nil,
+        onOutput: (@Sendable (AgentOutputChunk) -> Void)? = nil
+    ) async throws -> AgentRunResult {
         let fileManager = FileManager.default
         guard fileManager.isExecutableFile(atPath: executablePath) else {
             throw AgentProviderError.executableNotFound(executablePath)
@@ -108,6 +137,7 @@ public struct CodexCLIProvider: AgentProvider {
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
             let stdinPipe = Pipe()
+            let capture = ProcessOutputCapture()
             let startedAt = Date()
             let invocation = makeInvocation(for: request)
 
@@ -119,15 +149,15 @@ public struct CodexCLIProvider: AgentProvider {
             process.standardInput = stdinPipe
 
             process.terminationHandler = { process in
-                let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(decoding: outputData, as: UTF8.self)
-                let errorOutput = String(decoding: errorData, as: UTF8.self)
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                capture.append(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), channel: .standardOutput)
+                capture.append(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), channel: .standardError)
 
                 continuation.resume(
                     returning: AgentRunResult(
-                        output: output,
-                        errorOutput: errorOutput,
+                        output: capture.output(for: .standardOutput),
+                        errorOutput: capture.output(for: .standardError),
                         startedAt: startedAt,
                         completedAt: Date(),
                         exitCode: process.terminationStatus
@@ -137,6 +167,19 @@ public struct CodexCLIProvider: AgentProvider {
 
             do {
                 try process.run()
+                stdoutPipe.fileHandleForReading.readabilityHandler = makeReadabilityHandler(
+                    for: stdoutPipe.fileHandleForReading,
+                    channel: .standardOutput,
+                    capture: capture,
+                    onOutput: onOutput
+                )
+                stderrPipe.fileHandleForReading.readabilityHandler = makeReadabilityHandler(
+                    for: stderrPipe.fileHandleForReading,
+                    channel: .standardError,
+                    capture: capture,
+                    onOutput: onOutput
+                )
+                onStart?(process.processIdentifier)
                 if let promptData = request.prompt.data(using: .utf8) {
                     stdinPipe.fileHandleForWriting.write(promptData)
                 }
@@ -209,5 +252,67 @@ public struct CodexCLIProvider: AgentProvider {
             ] + extraArguments,
             environment: baseEnvironment.merging(environmentOverrides) { _, override in override }
         )
+    }
+
+    private func makeReadabilityHandler(
+        for handle: FileHandle,
+        channel: AgentOutputChannel,
+        capture: ProcessOutputCapture,
+        onOutput: (@Sendable (AgentOutputChunk) -> Void)?
+    ) -> @Sendable (FileHandle) -> Void {
+        { readableHandle in
+            let data = readableHandle.availableData
+            guard data.isEmpty == false else {
+                readableHandle.readabilityHandler = nil
+                return
+            }
+
+            capture.append(data: data, channel: channel)
+
+            let text = String(decoding: data, as: UTF8.self)
+            guard text.isEmpty == false else {
+                return
+            }
+            onOutput?(AgentOutputChunk(channel: channel, text: text))
+        }
+    }
+}
+
+private final class ProcessOutputCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var standardOutput = ""
+    private var standardError = ""
+
+    func append(data: Data, channel: AgentOutputChannel) {
+        guard data.isEmpty == false else {
+            return
+        }
+
+        let text = String(decoding: data, as: UTF8.self)
+        guard text.isEmpty == false else {
+            return
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch channel {
+        case .standardOutput:
+            standardOutput.append(text)
+        case .standardError:
+            standardError.append(text)
+        }
+    }
+
+    func output(for channel: AgentOutputChannel) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch channel {
+        case .standardOutput:
+            return standardOutput
+        case .standardError:
+            return standardError
+        }
     }
 }

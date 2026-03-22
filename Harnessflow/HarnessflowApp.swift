@@ -25,6 +25,12 @@ struct HarnessflowApp: App {
         .defaultSize(width: 1440, height: 900)
         .modelContainer(modelContainer)
 
+        WindowGroup("Phase Output", id: "phase-output", for: PhaseOutputWindowRoute.self) { route in
+            PhaseOutputWindowView(route: route.wrappedValue)
+                .environmentObject(store)
+        }
+        .defaultSize(width: 960, height: 720)
+
         Settings {
             SettingsView()
                 .environmentObject(store)

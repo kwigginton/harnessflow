@@ -2,6 +2,7 @@ import SwiftUI
 import HarnessflowCore
 
 struct TicketDetailView: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore
     let ticket: Ticket?
     @State private var promptDraft = ""
@@ -101,6 +102,33 @@ struct TicketDetailView: View {
                                             .foregroundStyle(.secondary)
                                     }
 
+                                    if let liveOutput = store.liveOutput(for: ticket.id, phase: outputPhase),
+                                       outputState.executionState == .running {
+                                        Text(
+                                            liveOutput.processIdentifier.map { "Attached to live process PID \($0)." }
+                                                ?? "Waiting for process attachment."
+                                        )
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                    }
+
+                                    if let processStatus = store.ownedProcessStatus(for: ticket.id, phase: outputPhase),
+                                       outputState.executionState == .running {
+                                        Text(processStatus.summary)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+
+                                        runningProcessActions(
+                                            ticketID: ticket.id,
+                                            phase: outputPhase,
+                                            processStatus: processStatus
+                                        )
+                                    }
+
+                                    Button(outputState.executionState == .running ? "Open Live Output Window" : "Open Output Window") {
+                                        openOutputWindow(ticketID: ticket.id, phase: outputPhase)
+                                    }
+
                                     if outputState.deliverableMarkdown.isEmpty == false {
                                         OutputBlock(title: "Deliverable", text: outputState.deliverableMarkdown)
                                     } else {
@@ -113,6 +141,11 @@ struct TicketDetailView: View {
                                 HStack(spacing: 10) {
                                     PhaseLabel(phase: outputPhase, font: .callout.weight(.semibold), iconSize: 18)
                                     StatusBadge(state: outputState.executionState)
+                                    Spacer(minLength: 0)
+                                    Button("Open") {
+                                        openOutputWindow(ticketID: ticket.id, phase: outputPhase)
+                                    }
+                                    .buttonStyle(.borderless)
                                 }
                             }
                         }
@@ -145,6 +178,15 @@ struct TicketDetailView: View {
                         if phaseState.capturedOutput.isEmpty && phaseState.capturedError.isEmpty {
                             Text("No execution result captured for this phase yet.")
                                 .foregroundStyle(.secondary)
+                        }
+
+                        if let processStatus = store.ownedProcessStatus(for: ticket.id, phase: phase),
+                           phaseState.executionState == .running {
+                            Divider()
+                            Text(processStatus.summary)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            runningProcessActions(ticketID: ticket.id, phase: phase, processStatus: processStatus)
                         }
                     }
                     .padding(.top, 4)
@@ -215,9 +257,35 @@ struct TicketDetailView: View {
             }
         )
     }
+
+    private func openOutputWindow(ticketID: UUID, phase: TicketPhase) {
+        openWindow(id: "phase-output", value: PhaseOutputWindowRoute(ticketID: ticketID, phase: phase))
+    }
+
+    @ViewBuilder
+    private func runningProcessActions(ticketID: UUID, phase: TicketPhase, processStatus: OwnedProcessStatus) -> some View {
+        HStack(spacing: 8) {
+            if processStatus.canTerminate {
+                Button("Terminate Process") {
+                    store.terminateOwnedProcess(ticketID: ticketID, phase: phase)
+                }
+
+                Button("Force Kill") {
+                    store.terminateOwnedProcess(ticketID: ticketID, phase: phase, force: true)
+                }
+            }
+
+            if processStatus.canTerminate == false {
+                Button("Clear Running State") {
+                    store.clearStuckRunningState(ticketID: ticketID, phase: phase)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+    }
 }
 
-private struct StatusBadge: View {
+struct StatusBadge: View {
     let state: PhaseExecutionState
 
     private var color: Color {

@@ -18,4 +18,18 @@ struct TicketModelsTests {
         #expect(ticket.phaseState(for: .research).executionState == .idle)
         #expect(ticket.phaseState(for: .research).deliverableMarkdown.isEmpty)
     }
+
+    @Test
+    func resetForReworkClearsOwnedProcessReference() {
+        var state = TicketPhaseState(phase: .plan)
+        state.ownedProcess = OwnedProcessReference(
+            processIdentifier: 456,
+            executablePath: "/opt/homebrew/bin/codex",
+            launchedAt: .now
+        )
+
+        state.resetForRework()
+
+        #expect(state.ownedProcess == nil)
+    }
 }

@@ -1,0 +1,171 @@
+import SwiftUI
+import HarnessflowCore
+
+struct PhaseOutputWindowRoute: Hashable, Codable {
+    let ticketID: UUID
+    let phaseRawValue: Int
+
+    init(ticketID: UUID, phase: TicketPhase) {
+        self.ticketID = ticketID
+        self.phaseRawValue = phase.rawValue
+    }
+
+    var phase: TicketPhase? {
+        TicketPhase(rawValue: phaseRawValue)
+    }
+}
+
+struct PhaseOutputWindowView: View {
+    @EnvironmentObject private var store: AppStore
+    let route: PhaseOutputWindowRoute?
+
+    private let bottomAnchor = "phase-output-bottom"
+
+    var body: some View {
+        Group {
+            if let route, let phase = route.phase {
+                content(ticketID: route.ticketID, phase: phase)
+            } else {
+                ContentUnavailableView(
+                    "Output Unavailable",
+                    systemImage: "terminal",
+                    description: Text("The requested phase output could not be opened.")
+                )
+            }
+        }
+        .frame(minWidth: 720, minHeight: 480)
+    }
+
+    @ViewBuilder
+    private func content(ticketID: UUID, phase: TicketPhase) -> some View {
+        let ticket = store.ticket(withID: ticketID)
+        let liveOutput = store.liveOutput(for: ticketID, phase: phase)
+        let persistedState = ticket?.phaseState(for: phase)
+        let processStatus = store.ownedProcessStatus(for: ticketID, phase: phase)
+        let outputText = displayText(liveOutput: liveOutput, persistedState: persistedState)
+
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(ticket?.title ?? "Ticket")
+                    .font(.title3.weight(.semibold))
+
+                HStack(spacing: 10) {
+                    PhaseLabel(phase: phase, font: .callout.weight(.semibold), iconSize: 18)
+
+                    if let liveOutput {
+                        StatusBadge(state: liveOutput.isRunning ? .running : (persistedState?.executionState ?? .idle))
+                        Text(
+                            liveOutput.processIdentifier.map { "PID \($0)" }
+                                ?? (liveOutput.isRunning ? "Launching…" : "Detached")
+                        )
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    } else if let persistedState {
+                        StatusBadge(state: persistedState.executionState)
+                    }
+
+                    Spacer()
+
+                    if let updatedAt = liveOutput?.lastUpdatedAt ?? persistedState?.lastCompletedAt {
+                        Text(updatedAt.formatted(date: .numeric, time: .standard))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let processStatus, persistedState?.executionState == .running {
+                    Text(processStatus.summary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        if processStatus.canTerminate {
+                            Button("Terminate Process") {
+                                store.terminateOwnedProcess(ticketID: ticketID, phase: phase)
+                            }
+
+                            Button("Force Kill") {
+                                store.terminateOwnedProcess(ticketID: ticketID, phase: phase, force: true)
+                            }
+                        } else {
+                            Button("Clear Running State") {
+                                store.clearStuckRunningState(ticketID: ticketID, phase: phase)
+                            }
+                        }
+                    }
+                }
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(outputText.isEmpty ? "No output captured for this phase yet." : outputText)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomAnchor)
+                }
+                .padding(14)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .onAppear {
+                    scrollToBottom(using: proxy, animated: false)
+                }
+                .onChange(of: outputText) { _, _ in
+                    guard liveOutput?.isRunning == true else {
+                        return
+                    }
+                    scrollToBottom(using: proxy, animated: true)
+                }
+            }
+        }
+        .padding(18)
+        .navigationTitle(windowTitle(ticket: ticket, phase: phase))
+    }
+
+    private func displayText(
+        liveOutput: AppStore.LivePhaseOutput?,
+        persistedState: TicketPhaseState?
+    ) -> String {
+        if let liveOutput {
+            if liveOutput.combinedText.isEmpty == false {
+                return liveOutput.combinedText
+            }
+            if liveOutput.isRunning {
+                return "Waiting for process output…"
+            }
+        }
+
+        let stdout = persistedState?.capturedOutput ?? ""
+        let stderr = persistedState?.capturedError ?? ""
+
+        switch (stdout.isEmpty, stderr.isEmpty) {
+        case (false, true):
+            return stdout
+        case (true, false):
+            return stderr
+        case (false, false):
+            return "\(stdout)\n\n[stderr]\n\(stderr)"
+        case (true, true):
+            return ""
+        }
+    }
+
+    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(bottomAnchor, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(bottomAnchor, anchor: .bottom)
+        }
+    }
+
+    private func windowTitle(ticket: Ticket?, phase: TicketPhase) -> String {
+        if let ticket {
+            return "\(ticket.title) • \(phase.title) Output"
+        }
+        return "\(phase.title) Output"
+    }
+}

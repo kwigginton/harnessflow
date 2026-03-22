@@ -1,16 +1,18 @@
 import Foundation
 
 public struct PhaseModelSelection: Codable, Equatable, Sendable {
+    public static let subscriptionCompatibleDefaultModel = "gpt-5.3-codex"
+
     public var research: String
     public var plan: String
     public var implement: String
     public var review: String
 
     public init(
-        research: String = "codex",
-        plan: String = "codex",
-        implement: String = "codex",
-        review: String = "codex"
+        research: String = PhaseModelSelection.subscriptionCompatibleDefaultModel,
+        plan: String = PhaseModelSelection.subscriptionCompatibleDefaultModel,
+        implement: String = PhaseModelSelection.subscriptionCompatibleDefaultModel,
+        review: String = PhaseModelSelection.subscriptionCompatibleDefaultModel
     ) {
         self.research = research
         self.plan = plan

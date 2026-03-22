@@ -46,6 +46,22 @@ public enum PhaseExecutionState: String, Codable, CaseIterable, Equatable, Senda
     }
 }
 
+public struct OwnedProcessReference: Codable, Equatable, Sendable {
+    public var processIdentifier: Int32
+    public var executablePath: String
+    public var launchedAt: Date
+
+    public init(
+        processIdentifier: Int32,
+        executablePath: String,
+        launchedAt: Date
+    ) {
+        self.processIdentifier = processIdentifier
+        self.executablePath = executablePath
+        self.launchedAt = launchedAt
+    }
+}
+
 public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var phase: TicketPhase
@@ -98,6 +114,7 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
     public var deliverableMarkdown: String
     public var deliverableGeneratedAt: Date?
     public var deliverableSourceRunID: UUID?
+    public var ownedProcess: OwnedProcessReference?
     public var runs: [PhaseRun]
 
     public var id: TicketPhase { phase }
@@ -115,6 +132,7 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         deliverableMarkdown: String = "",
         deliverableGeneratedAt: Date? = nil,
         deliverableSourceRunID: UUID? = nil,
+        ownedProcess: OwnedProcessReference? = nil,
         runs: [PhaseRun] = []
     ) {
         self.phase = phase
@@ -128,6 +146,7 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         self.deliverableMarkdown = deliverableMarkdown
         self.deliverableGeneratedAt = deliverableGeneratedAt
         self.deliverableSourceRunID = deliverableSourceRunID
+        self.ownedProcess = ownedProcess
         self.runs = runs
     }
 
@@ -145,6 +164,7 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         deliverableMarkdown = ""
         deliverableGeneratedAt = nil
         deliverableSourceRunID = nil
+        ownedProcess = nil
     }
 }
 

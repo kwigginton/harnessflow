@@ -6,6 +6,35 @@ import HarnessflowCore
 
 @MainActor
 final class AppStore: ObservableObject {
+    struct LivePhaseOutput: Equatable, Sendable {
+        let ticketID: UUID
+        let phase: TicketPhase
+        var processIdentifier: Int32?
+        var startedAt: Date
+        var lastUpdatedAt: Date
+        var standardOutput: String
+        var standardError: String
+        var combinedText: String
+        var isRunning: Bool
+
+        init(ticketID: UUID, phase: TicketPhase, startedAt: Date) {
+            self.ticketID = ticketID
+            self.phase = phase
+            self.processIdentifier = nil
+            self.startedAt = startedAt
+            self.lastUpdatedAt = startedAt
+            self.standardOutput = ""
+            self.standardError = ""
+            self.combinedText = ""
+            self.isRunning = true
+        }
+    }
+
+    private struct LivePhaseOutputKey: Hashable {
+        let ticketID: UUID
+        let phase: TicketPhase
+    }
+
     @Published private(set) var projects: [ProjectRecord] = []
     @Published private(set) var tickets: [Ticket] = []
     @Published private(set) var settings: AppSettings
@@ -14,11 +43,13 @@ final class AppStore: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var hasOpenAIAPIToken = false
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
+    @Published private var livePhaseOutputs: [LivePhaseOutputKey: LivePhaseOutput] = [:]
 
     private let persistenceStore: PersistenceStore
     private let credentialsStore: OpenAICredentialsStore
     private let workflow = TicketWorkflow()
     private let executionService = TicketExecutionService()
+    private let processSupervisor = OwnedProcessSupervisor()
 
     init(modelContainer: ModelContainer, defaultWorkingDirectory: String) {
         self.persistenceStore = PersistenceStore(
@@ -43,6 +74,23 @@ final class AppStore: ObservableObject {
 
     var hasSelectedProject: Bool {
         selectedProject != nil
+    }
+
+    func ticket(withID id: UUID) -> Ticket? {
+        tickets.first(where: { $0.id == id })
+    }
+
+    func liveOutput(for ticketID: UUID, phase: TicketPhase) -> LivePhaseOutput? {
+        livePhaseOutputs[LivePhaseOutputKey(ticketID: ticketID, phase: phase)]
+    }
+
+    func ownedProcessStatus(for ticketID: UUID, phase: TicketPhase) -> OwnedProcessStatus? {
+        guard let ownedProcess = ticket(withID: ticketID)?.phaseState(for: phase).ownedProcess else {
+            return nil
+        }
+
+        let attachedPID = liveOutput(for: ticketID, phase: phase)?.processIdentifier
+        return processSupervisor.status(for: ownedProcess, attachedPID: attachedPID)
     }
 
     func selectTicket(_ id: UUID?) {
@@ -292,6 +340,7 @@ final class AppStore: ObservableObject {
             )
             let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
             try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
+            beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
             reload()
 
             let execution = try await executeRequest(
@@ -307,6 +356,7 @@ final class AppStore: ObservableObject {
                 didFallbackFromSubscription: execution.didFallbackFromSubscription
             )
             try persistenceStore.upsert(ticket: completedTicket, projectID: projectID)
+            completeLiveOutput(for: preparedRequest, result: execution.result)
             reload()
         } catch {
             if let request {
@@ -321,6 +371,7 @@ final class AppStore: ObservableObject {
                         didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
                     )
                     try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
+                    failLiveOutput(for: request, message: executionError?.message ?? error.localizedDescription)
                     reload()
                 } catch {
                     errorMessage = error.localizedDescription
@@ -329,6 +380,63 @@ final class AppStore: ObservableObject {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func terminateOwnedProcess(ticketID: UUID, phase: TicketPhase, force: Bool = false) {
+        guard let ticket = ticket(withID: ticketID) else {
+            return
+        }
+        let phaseState = ticket.phaseState(for: phase)
+        guard let ownedProcess = phaseState.ownedProcess else {
+            errorMessage = "There is no recorded process for this phase."
+            return
+        }
+
+        let priorStatus = processSupervisor.status(
+            for: ownedProcess,
+            attachedPID: liveOutput(for: ticketID, phase: phase)?.processIdentifier
+        )
+        let status = processSupervisor.terminate(reference: ownedProcess, force: force)
+        if priorStatus.kind == .runningDetached {
+            markPhaseRecovered(
+                ticketID: ticketID,
+                phase: phase,
+                recoveryMessage: status.summary
+            )
+        } else if status.canTerminate {
+            reload()
+        } else {
+            errorMessage = status.summary
+        }
+    }
+
+    func clearStuckRunningState(ticketID: UUID, phase: TicketPhase) {
+        guard let ticket = ticket(withID: ticketID) else {
+            return
+        }
+
+        let phaseState = ticket.phaseState(for: phase)
+        guard phaseState.executionState == .running else {
+            return
+        }
+
+        let status = phaseState.ownedProcess.map { ownedProcess in
+            processSupervisor.status(
+                for: ownedProcess,
+                attachedPID: liveOutput(for: ticketID, phase: phase)?.processIdentifier
+            )
+        }
+
+        if status?.canTerminate == true {
+            errorMessage = "PID \(phaseState.ownedProcess?.processIdentifier ?? 0) still appears to be running. Terminate it before clearing the running state."
+            return
+        }
+
+        markPhaseRecovered(
+            ticketID: ticketID,
+            phase: phase,
+            recoveryMessage: status?.summary ?? "The phase was manually cleared from a stuck running state."
+        )
     }
 
     private func readCodexLoginStatus(executablePath: String) -> CodexLoginStatus {
@@ -349,14 +457,39 @@ final class AppStore: ObservableObject {
         )
 
         do {
-            let primaryResult = try await primaryProvider.run(request: request)
+            let primaryResult = try await primaryProvider.run(
+                request: request,
+                onStart: { [weak self] processIdentifier in
+                    Task { @MainActor in
+                        self?.attachProcess(processIdentifier, to: request)
+                    }
+                },
+                onOutput: { [weak self] chunk in
+                    Task { @MainActor in
+                        self?.appendLiveOutput(chunk, to: request)
+                    }
+                }
+            )
             if authResolver.shouldRetryWithAPIKey(
                 after: combinedFailureText(output: primaryResult.output, errorOutput: primaryResult.errorOutput),
                 previousResolution: resolution,
                 hasAPIKey: hasAPIKey
             ) {
                 let fallbackProvider = makeProvider(authMethod: .apiKey, apiToken: trimmedToken)
-                let fallbackResult = try await fallbackProvider.run(request: request)
+                resetLiveOutput(for: request)
+                let fallbackResult = try await fallbackProvider.run(
+                    request: request,
+                    onStart: { [weak self] processIdentifier in
+                        Task { @MainActor in
+                            self?.attachProcess(processIdentifier, to: request)
+                        }
+                    },
+                    onOutput: { [weak self] chunk in
+                        Task { @MainActor in
+                            self?.appendLiveOutput(chunk, to: request)
+                        }
+                    }
+                )
                 return CodexExecutionOutcome(
                     result: fallbackResult,
                     authMethod: .apiKey,
@@ -376,9 +509,22 @@ final class AppStore: ObservableObject {
                 hasAPIKey: hasAPIKey
             ) {
                 let fallbackProvider = makeProvider(authMethod: .apiKey, apiToken: trimmedToken)
+                resetLiveOutput(for: request)
 
                 do {
-                    let fallbackResult = try await fallbackProvider.run(request: request)
+                    let fallbackResult = try await fallbackProvider.run(
+                        request: request,
+                        onStart: { [weak self] processIdentifier in
+                            Task { @MainActor in
+                                self?.attachProcess(processIdentifier, to: request)
+                            }
+                        },
+                        onOutput: { [weak self] chunk in
+                            Task { @MainActor in
+                                self?.appendLiveOutput(chunk, to: request)
+                            }
+                        }
+                    )
                     return CodexExecutionOutcome(
                         result: fallbackResult,
                         authMethod: .apiKey,
@@ -429,6 +575,162 @@ final class AppStore: ObservableObject {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { $0.isEmpty == false }
             .joined(separator: "\n\n")
+    }
+
+    private func beginLiveOutput(for request: AgentRunRequest, startedAt: Date) {
+        livePhaseOutputs[liveOutputKey(for: request)] = LivePhaseOutput(
+            ticketID: request.ticketID,
+            phase: request.phase,
+            startedAt: startedAt
+        )
+    }
+
+    private func attachProcess(_ processIdentifier: Int32, to request: AgentRunRequest) {
+        let key = liveOutputKey(for: request)
+        guard var liveOutput = livePhaseOutputs[key] else {
+            return
+        }
+
+        liveOutput.processIdentifier = processIdentifier
+        liveOutput.lastUpdatedAt = .now
+        livePhaseOutputs[key] = liveOutput
+        persistOwnedProcess(for: request, processIdentifier: processIdentifier)
+    }
+
+    private func appendLiveOutput(_ chunk: AgentOutputChunk, to request: AgentRunRequest) {
+        let key = liveOutputKey(for: request)
+        guard var liveOutput = livePhaseOutputs[key] else {
+            return
+        }
+
+        switch chunk.channel {
+        case .standardOutput:
+            liveOutput.standardOutput.append(chunk.text)
+            liveOutput.combinedText.append(chunk.text)
+        case .standardError:
+            liveOutput.standardError.append(chunk.text)
+            liveOutput.combinedText.append(formatStandardError(chunk.text))
+        }
+
+        liveOutput.lastUpdatedAt = .now
+        livePhaseOutputs[key] = liveOutput
+    }
+
+    private func completeLiveOutput(for request: AgentRunRequest, result: AgentRunResult) {
+        let key = liveOutputKey(for: request)
+        guard var liveOutput = livePhaseOutputs[key] else {
+            return
+        }
+
+        liveOutput.standardOutput = result.output
+        liveOutput.standardError = result.errorOutput
+        liveOutput.combinedText = makeCombinedOutput(
+            standardOutput: result.output,
+            standardError: result.errorOutput
+        )
+        liveOutput.isRunning = false
+        liveOutput.lastUpdatedAt = result.completedAt
+        livePhaseOutputs[key] = liveOutput
+    }
+
+    private func failLiveOutput(for request: AgentRunRequest, message: String) {
+        let key = liveOutputKey(for: request)
+        guard var liveOutput = livePhaseOutputs[key] else {
+            return
+        }
+
+        let formattedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if formattedMessage.isEmpty == false {
+            liveOutput.standardError = formattedMessage
+            liveOutput.combinedText = makeCombinedOutput(
+                standardOutput: liveOutput.standardOutput,
+                standardError: formattedMessage
+            )
+        }
+        liveOutput.isRunning = false
+        liveOutput.lastUpdatedAt = .now
+        livePhaseOutputs[key] = liveOutput
+    }
+
+    private func resetLiveOutput(for request: AgentRunRequest) {
+        let key = liveOutputKey(for: request)
+        livePhaseOutputs[key] = LivePhaseOutput(
+            ticketID: request.ticketID,
+            phase: request.phase,
+            startedAt: livePhaseOutputs[key]?.startedAt ?? .now
+        )
+    }
+
+    private func liveOutputKey(for request: AgentRunRequest) -> LivePhaseOutputKey {
+        LivePhaseOutputKey(ticketID: request.ticketID, phase: request.phase)
+    }
+
+    private func makeCombinedOutput(standardOutput: String, standardError: String) -> String {
+        let stdout = standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stderr = standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch (stdout.isEmpty, stderr.isEmpty) {
+        case (false, true):
+            return standardOutput
+        case (true, false):
+            return formatStandardError(standardError)
+        case (false, false):
+            return standardOutput + (standardOutput.hasSuffix("\n") ? "" : "\n") + formatStandardError(standardError)
+        case (true, true):
+            return ""
+        }
+    }
+
+    private func formatStandardError(_ text: String) -> String {
+        let trailingNewline = text.hasSuffix("\n")
+        let formatted = text
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .map { "[stderr] \($0)" }
+            .joined(separator: "\n")
+
+        if trailingNewline {
+            return formatted + "\n"
+        }
+        return formatted
+    }
+
+    private func persistOwnedProcess(for request: AgentRunRequest, processIdentifier: Int32) {
+        do {
+            _ = try persistenceStore.updatePhaseState(ticketID: request.ticketID, phase: request.phase) { phaseState in
+                phaseState.ownedProcess = OwnedProcessReference(
+                    processIdentifier: processIdentifier,
+                    executablePath: settings.codexExecutablePath,
+                    launchedAt: phaseState.lastStartedAt ?? .now
+                )
+            }
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func markPhaseRecovered(ticketID: UUID, phase: TicketPhase, recoveryMessage: String) {
+        do {
+            let recoveredTicket = try persistenceStore.updatePhaseState(ticketID: ticketID, phase: phase) { phaseState in
+                let existing = phaseState.capturedError.trimmingCharacters(in: .whitespacesAndNewlines)
+                let addition = recoveryMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+                phaseState.executionState = .failed
+                phaseState.lastCompletedAt = .now
+                phaseState.ownedProcess = nil
+                phaseState.capturedError = [existing, addition]
+                    .filter { $0.isEmpty == false }
+                    .joined(separator: existing.isEmpty ? "" : "\n\n")
+            }
+
+            livePhaseOutputs.removeValue(forKey: LivePhaseOutputKey(ticketID: ticketID, phase: phase))
+            if recoveredTicket == nil {
+                errorMessage = "Ticket not found."
+            } else {
+                reload()
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

@@ -62,6 +62,7 @@ public struct TicketExecutionService: Sendable {
         phaseState.lastCompletedAt = nil
         phaseState.capturedOutput = ""
         phaseState.capturedError = ""
+        phaseState.ownedProcess = nil
         updated.updatePhaseState(phaseState)
         updated.updatedAt = at
         return updated
@@ -104,6 +105,7 @@ public struct TicketExecutionService: Sendable {
         phaseState.lastCompletedAt = result.completedAt
         phaseState.capturedOutput = result.output
         phaseState.capturedError = finalErrorOutput
+        phaseState.ownedProcess = nil
         if let deliverable {
             phaseState.deliverableMarkdown = deliverable
             phaseState.deliverableGeneratedAt = result.completedAt
@@ -163,6 +165,7 @@ public struct TicketExecutionService: Sendable {
         phaseState.lastCompletedAt = failedAt
         phaseState.capturedOutput = ""
         phaseState.capturedError = errorMessage
+        phaseState.ownedProcess = nil
         phaseState.runs.append(
             PhaseRun(
                 phase: request.phase,
