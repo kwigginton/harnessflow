@@ -41,7 +41,6 @@ struct PhaseOutputWindowView: View {
         let ticket = store.ticket(withID: ticketID)
         let liveOutput = store.liveOutput(for: ticketID, phase: phase)
         let persistedState = ticket?.phaseState(for: phase)
-        let processStatus = store.ownedProcessStatus(for: ticketID, phase: phase)
         let outputText = displayText(liveOutput: liveOutput, persistedState: persistedState)
 
         VStack(alignment: .leading, spacing: 12) {
@@ -73,13 +72,13 @@ struct PhaseOutputWindowView: View {
                     }
                 }
 
-                if let processStatus, persistedState?.executionState == .running {
-                    Text(processStatus.summary)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if persistedState?.executionState == .running {
+                    if let persistedState, persistedState.ownedProcess != nil {
+                        Text(processSummary(for: persistedState, liveOutput: liveOutput))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
 
-                    HStack(spacing: 8) {
-                        if processStatus.canTerminate {
+                        HStack(spacing: 8) {
                             Button("Terminate Process") {
                                 store.terminateOwnedProcess(ticketID: ticketID, phase: phase)
                             }
@@ -87,10 +86,14 @@ struct PhaseOutputWindowView: View {
                             Button("Force Kill") {
                                 store.terminateOwnedProcess(ticketID: ticketID, phase: phase, force: true)
                             }
-                        } else {
-                            Button("Clear Running State") {
-                                store.clearStuckRunningState(ticketID: ticketID, phase: phase)
-                            }
+                        }
+                    } else {
+                        Text("This running state has no recorded process ownership. It can be cleared, but not terminated from Harnessflow.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        Button("Clear Running State") {
+                            store.clearStuckRunningState(ticketID: ticketID, phase: phase)
                         }
                     }
                 }
@@ -167,5 +170,15 @@ struct PhaseOutputWindowView: View {
             return "\(ticket.title) • \(phase.title) Output"
         }
         return "\(phase.title) Output"
+    }
+
+    private func processSummary(for phaseState: TicketPhaseState, liveOutput: AppStore.LivePhaseOutput?) -> String {
+        if let pid = liveOutput?.processIdentifier {
+            return "Harnessflow is actively attached to PID \(pid)."
+        }
+        if let ownedProcess = phaseState.ownedProcess {
+            return "This phase has a recorded process PID \(ownedProcess.processIdentifier). Terminate will verify ownership before sending signals."
+        }
+        return ""
     }
 }

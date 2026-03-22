@@ -6,6 +6,17 @@ import HarnessflowCore
 
 @MainActor
 final class AppStore: ObservableObject {
+    enum ErrorRecoveryAction: Equatable {
+        case clearRunningState(ticketID: UUID, phase: TicketPhase)
+
+        var title: String {
+            switch self {
+            case .clearRunningState:
+                "Clear Running State"
+            }
+        }
+    }
+
     struct LivePhaseOutput: Equatable, Sendable {
         let ticketID: UUID
         let phase: TicketPhase
@@ -41,6 +52,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var selectedProjectID: UUID?
     @Published var selectedTicketID: UUID?
     @Published var errorMessage: String?
+    @Published private(set) var errorRecoveryAction: ErrorRecoveryAction?
     @Published private(set) var hasOpenAIAPIToken = false
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
     @Published private var livePhaseOutputs: [LivePhaseOutputKey: LivePhaseOutput] = [:]
@@ -84,15 +96,6 @@ final class AppStore: ObservableObject {
         livePhaseOutputs[LivePhaseOutputKey(ticketID: ticketID, phase: phase)]
     }
 
-    func ownedProcessStatus(for ticketID: UUID, phase: TicketPhase) -> OwnedProcessStatus? {
-        guard let ownedProcess = ticket(withID: ticketID)?.phaseState(for: phase).ownedProcess else {
-            return nil
-        }
-
-        let attachedPID = liveOutput(for: ticketID, phase: phase)?.processIdentifier
-        return processSupervisor.status(for: ownedProcess, attachedPID: attachedPID)
-    }
-
     func selectTicket(_ id: UUID?) {
         selectedTicketID = id
     }
@@ -108,6 +111,7 @@ final class AppStore: ObservableObject {
 
     func clearError() {
         errorMessage = nil
+        errorRecoveryAction = nil
     }
 
     func reload() {
@@ -406,7 +410,12 @@ final class AppStore: ObservableObject {
         } else if status.canTerminate {
             reload()
         } else {
-            errorMessage = status.summary
+            presentError(
+                status.summary,
+                recoveryAction: status.kind == .exited
+                    ? .clearRunningState(ticketID: ticketID, phase: phase)
+                    : nil
+            )
         }
     }
 
@@ -696,14 +705,16 @@ final class AppStore: ObservableObject {
 
     private func persistOwnedProcess(for request: AgentRunRequest, processIdentifier: Int32) {
         do {
-            _ = try persistenceStore.updatePhaseState(ticketID: request.ticketID, phase: request.phase) { phaseState in
+            let updatedTicket = try persistenceStore.updatePhaseState(ticketID: request.ticketID, phase: request.phase) { phaseState in
                 phaseState.ownedProcess = OwnedProcessReference(
                     processIdentifier: processIdentifier,
                     executablePath: settings.codexExecutablePath,
                     launchedAt: phaseState.lastStartedAt ?? .now
                 )
             }
-            reload()
+            if let updatedTicket {
+                replaceTicketInMemory(updatedTicket)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -731,6 +742,31 @@ final class AppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func replaceTicketInMemory(_ updatedTicket: Ticket) {
+        if let index = tickets.firstIndex(where: { $0.id == updatedTicket.id }) {
+            tickets[index] = updatedTicket
+            tickets.sort { $0.updatedAt > $1.updatedAt }
+        }
+    }
+
+    func performErrorRecoveryAction() {
+        guard let errorRecoveryAction else {
+            return
+        }
+
+        clearError()
+
+        switch errorRecoveryAction {
+        case let .clearRunningState(ticketID, phase):
+            clearStuckRunningState(ticketID: ticketID, phase: phase)
+        }
+    }
+
+    private func presentError(_ message: String, recoveryAction: ErrorRecoveryAction? = nil) {
+        errorMessage = message
+        errorRecoveryAction = recoveryAction
     }
 }
 

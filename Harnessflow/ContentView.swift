@@ -98,6 +98,12 @@ struct ContentView: View {
                 }
             ),
             actions: {
+                if store.errorRecoveryAction != nil {
+                    Button(store.errorRecoveryAction?.title ?? "Recover") {
+                        store.performErrorRecoveryAction()
+                    }
+                }
+
                 Button("OK", role: .cancel) {
                     store.clearError()
                 }

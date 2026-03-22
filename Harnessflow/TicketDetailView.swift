@@ -112,17 +112,24 @@ struct TicketDetailView: View {
                                         .foregroundStyle(.secondary)
                                     }
 
-                                    if let processStatus = store.ownedProcessStatus(for: ticket.id, phase: outputPhase),
-                                       outputState.executionState == .running {
-                                        Text(processStatus.summary)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
+                                    if outputState.executionState == .running {
+                                        if outputState.ownedProcess != nil {
+                                            Text(processSummary(for: outputState, liveOutput: store.liveOutput(for: ticket.id, phase: outputPhase)))
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
 
-                                        runningProcessActions(
-                                            ticketID: ticket.id,
-                                            phase: outputPhase,
-                                            processStatus: processStatus
-                                        )
+                                            runningProcessActions(
+                                                ticketID: ticket.id,
+                                                phase: outputPhase,
+                                                canTerminate: true
+                                            )
+                                        } else {
+                                            Text("This running state has no recorded process ownership. It can be cleared, but not terminated from Harnessflow.")
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+
+                                            legacyRunningStateActions(ticketID: ticket.id, phase: outputPhase)
+                                        }
                                     }
 
                                     Button(outputState.executionState == .running ? "Open Live Output Window" : "Open Output Window") {
@@ -180,13 +187,20 @@ struct TicketDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        if let processStatus = store.ownedProcessStatus(for: ticket.id, phase: phase),
-                           phaseState.executionState == .running {
+                        if phaseState.executionState == .running {
                             Divider()
-                            Text(processStatus.summary)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            runningProcessActions(ticketID: ticket.id, phase: phase, processStatus: processStatus)
+
+                            if phaseState.ownedProcess != nil {
+                                Text(processSummary(for: phaseState, liveOutput: store.liveOutput(for: ticket.id, phase: phase)))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                runningProcessActions(ticketID: ticket.id, phase: phase, canTerminate: true)
+                            } else {
+                                Text("This running state has no recorded process ownership. It can be cleared, but not terminated from Harnessflow.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                legacyRunningStateActions(ticketID: ticket.id, phase: phase)
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -263,25 +277,41 @@ struct TicketDetailView: View {
     }
 
     @ViewBuilder
-    private func runningProcessActions(ticketID: UUID, phase: TicketPhase, processStatus: OwnedProcessStatus) -> some View {
+    private func runningProcessActions(ticketID: UUID, phase: TicketPhase, canTerminate: Bool) -> some View {
         HStack(spacing: 8) {
-            if processStatus.canTerminate {
+            if canTerminate {
                 Button("Terminate Process") {
                     store.terminateOwnedProcess(ticketID: ticketID, phase: phase)
                 }
+            }
 
+            if canTerminate {
                 Button("Force Kill") {
                     store.terminateOwnedProcess(ticketID: ticketID, phase: phase, force: true)
                 }
             }
+        }
+        .buttonStyle(.bordered)
+    }
 
-            if processStatus.canTerminate == false {
-                Button("Clear Running State") {
-                    store.clearStuckRunningState(ticketID: ticketID, phase: phase)
-                }
+    @ViewBuilder
+    private func legacyRunningStateActions(ticketID: UUID, phase: TicketPhase) -> some View {
+        HStack(spacing: 8) {
+            Button("Clear Running State") {
+                store.clearStuckRunningState(ticketID: ticketID, phase: phase)
             }
         }
         .buttonStyle(.bordered)
+    }
+
+    private func processSummary(for phaseState: TicketPhaseState, liveOutput: AppStore.LivePhaseOutput?) -> String {
+        if let pid = liveOutput?.processIdentifier {
+            return "Harnessflow is actively attached to PID \(pid)."
+        }
+        if let ownedProcess = phaseState.ownedProcess {
+            return "This phase has a recorded process PID \(ownedProcess.processIdentifier). Terminate will verify ownership before sending signals."
+        }
+        return ""
     }
 }
 

@@ -662,8 +662,8 @@ enum HarnessflowSchemaV4: VersionedSchema {
         var deliverableMarkdown: String = ""
         var deliverableGeneratedAt: Date?
         var deliverableSourceRunID: UUID?
-        var ownedProcessIdentifier: Int32?
-        var ownedProcessExecutablePath: String
+        var ownedProcessIdentifier: Int?
+        var ownedProcessExecutablePath: String?
         var ownedProcessLaunchedAt: Date?
         var ticket: TicketEntity?
         @Relationship(deleteRule: .cascade, inverse: \PhaseRunEntity.phaseState) var runs: [PhaseRunEntity]
@@ -681,8 +681,8 @@ enum HarnessflowSchemaV4: VersionedSchema {
             deliverableMarkdown: String = "",
             deliverableGeneratedAt: Date? = nil,
             deliverableSourceRunID: UUID? = nil,
-            ownedProcessIdentifier: Int32? = nil,
-            ownedProcessExecutablePath: String = "",
+            ownedProcessIdentifier: Int? = nil,
+            ownedProcessExecutablePath: String? = nil,
             ownedProcessLaunchedAt: Date? = nil,
             ticket: TicketEntity? = nil,
             runs: [PhaseRunEntity] = []
@@ -905,7 +905,7 @@ extension PhaseStateEntity {
             deliverableMarkdown: state.deliverableMarkdown,
             deliverableGeneratedAt: state.deliverableGeneratedAt,
             deliverableSourceRunID: state.deliverableSourceRunID,
-            ownedProcessIdentifier: state.ownedProcess?.processIdentifier,
+            ownedProcessIdentifier: state.ownedProcess.map { Int($0.processIdentifier) },
             ownedProcessExecutablePath: state.ownedProcess?.executablePath ?? "",
             ownedProcessLaunchedAt: state.ownedProcess?.launchedAt,
             ticket: ticket
@@ -925,8 +925,8 @@ extension PhaseStateEntity {
         deliverableMarkdown = state.deliverableMarkdown
         deliverableGeneratedAt = state.deliverableGeneratedAt
         deliverableSourceRunID = state.deliverableSourceRunID
-        ownedProcessIdentifier = state.ownedProcess?.processIdentifier
-        ownedProcessExecutablePath = state.ownedProcess?.executablePath ?? ""
+        ownedProcessIdentifier = state.ownedProcess.map { Int($0.processIdentifier) }
+        ownedProcessExecutablePath = state.ownedProcess?.executablePath
         ownedProcessLaunchedAt = state.ownedProcess?.launchedAt
 
         let existing = Dictionary(uniqueKeysWithValues: runs.map { ($0.id, $0) })
@@ -955,14 +955,24 @@ extension PhaseStateEntity {
             deliverableMarkdown: deliverableMarkdown,
             deliverableGeneratedAt: deliverableGeneratedAt,
             deliverableSourceRunID: deliverableSourceRunID,
-            ownedProcess: ownedProcessIdentifier.map {
-                OwnedProcessReference(
-                    processIdentifier: $0,
-                    executablePath: ownedProcessExecutablePath,
-                    launchedAt: ownedProcessLaunchedAt ?? lastStartedAt ?? .distantPast
-                )
-            },
+            ownedProcess: ownedProcessReference(),
             runs: runs.sorted(by: { $0.startedAt < $1.startedAt }).map { $0.toDomain() }
+        )
+    }
+
+    private func ownedProcessReference() -> OwnedProcessReference? {
+        guard
+            let ownedProcessIdentifier,
+            let ownedProcessExecutablePath,
+            ownedProcessExecutablePath.isEmpty == false
+        else {
+            return nil
+        }
+
+        return OwnedProcessReference(
+            processIdentifier: Int32(ownedProcessIdentifier),
+            executablePath: ownedProcessExecutablePath,
+            launchedAt: ownedProcessLaunchedAt ?? lastStartedAt ?? .distantPast
         )
     }
 }
