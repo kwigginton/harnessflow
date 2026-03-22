@@ -42,6 +42,7 @@ public struct TicketWorkflow: Sendable {
         var updated = ticket
         let current = ticket.column
         updated.column = destination
+        updated.completedAt = nil
         updated.updatedAt = movedAt
 
         if destination.rawValue < current.rawValue {

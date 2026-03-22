@@ -17,6 +17,8 @@ struct TicketModelsTests {
         #expect(ticket.phaseState(for: .implement).prompt == "Ship it")
         #expect(ticket.phaseState(for: .research).executionState == .idle)
         #expect(ticket.phaseState(for: .research).deliverableMarkdown.isEmpty)
+        #expect(ticket.autoShiftOnSuccess == false)
+        #expect(ticket.completedAt == nil)
     }
 
     @Test
@@ -31,5 +33,13 @@ struct TicketModelsTests {
         state.resetForRework()
 
         #expect(state.ownedProcess == nil)
+    }
+
+    @Test
+    func reviewPhaseHasNoNextPhase() {
+        #expect(TicketPhase.research.next == .plan)
+        #expect(TicketPhase.plan.next == .implement)
+        #expect(TicketPhase.implement.next == .review)
+        #expect(TicketPhase.review.next == nil)
     }
 }

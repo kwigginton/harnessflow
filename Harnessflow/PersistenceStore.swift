@@ -102,7 +102,8 @@ final class PersistenceStore {
         title: String,
         detailsText: String,
         projectID: UUID,
-        initialPhase: TicketPhase = .research
+        initialPhase: TicketPhase = .research,
+        autoShiftOnSuccess: Bool = false
     ) throws -> Ticket {
         try bootstrapIfNeeded()
         guard let project = try fetchProjectEntity(id: projectID) else {
@@ -113,7 +114,8 @@ final class PersistenceStore {
         let ticket = Ticket(
             title: trimmedTitle,
             detailsText: detailsText.trimmingCharacters(in: .whitespacesAndNewlines),
-            column: initialPhase
+            column: initialPhase,
+            autoShiftOnSuccess: autoShiftOnSuccess
         )
         let entity = TicketEntity(ticket: ticket, project: project)
         context.insert(entity)

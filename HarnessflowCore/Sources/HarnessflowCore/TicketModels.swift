@@ -33,6 +33,19 @@ public enum TicketPhase: Int, CaseIterable, Codable, Hashable, Identifiable, Sen
             "checkmark.shield"
         }
     }
+
+    public var next: TicketPhase? {
+        switch self {
+        case .research:
+            .plan
+        case .plan:
+            .implement
+        case .implement:
+            .review
+        case .review:
+            nil
+        }
+    }
 }
 
 public enum PhaseExecutionState: String, Codable, CaseIterable, Equatable, Sendable {
@@ -173,15 +186,21 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
     public var title: String
     public var detailsText: String
     public var column: TicketPhase
+    public var autoShiftOnSuccess: Bool
+    public var completedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
     public var phaseStates: [TicketPhaseState]
+
+    public var isDone: Bool { completedAt != nil }
 
     public init(
         id: UUID = UUID(),
         title: String,
         detailsText: String = "",
         column: TicketPhase = .research,
+        autoShiftOnSuccess: Bool = false,
+        completedAt: Date? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         phaseStates: [TicketPhaseState] = TicketPhase.allCases.map(TicketPhaseState.empty(for:))
@@ -190,6 +209,8 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
         self.title = title
         self.detailsText = detailsText
         self.column = column
+        self.autoShiftOnSuccess = autoShiftOnSuccess
+        self.completedAt = completedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.phaseStates = Ticket.normalizedStates(from: phaseStates)

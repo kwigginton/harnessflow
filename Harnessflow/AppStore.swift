@@ -165,7 +165,12 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func createTicket(title: String, detailsText: String, initialPhase: TicketPhase = .research) {
+    func createTicket(
+        title: String,
+        detailsText: String,
+        initialPhase: TicketPhase = .research,
+        autoShiftOnSuccess: Bool = false
+    ) {
         errorMessage = nil
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedTitle.isEmpty == false else {
@@ -182,7 +187,8 @@ final class AppStore: ObservableObject {
                 title: trimmedTitle,
                 detailsText: detailsText,
                 projectID: selectedProjectID,
-                initialPhase: initialPhase
+                initialPhase: initialPhase,
+                autoShiftOnSuccess: autoShiftOnSuccess
             )
             reload()
             selectedTicketID = ticket.id
@@ -275,6 +281,27 @@ final class AppStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func shiftTicketForward(id: UUID) -> Bool {
+        guard let ticket = tickets.first(where: { $0.id == id }) else {
+            return false
+        }
+        guard let selectedProjectID else {
+            errorMessage = "Select a project before moving tickets."
+            return false
+        }
+
+        do {
+            let shifted = try shiftCompletedTicket(ticket)
+            try persistenceStore.upsert(ticket: shifted, projectID: selectedProjectID)
+            reload()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func saveSettings(
         codexExecutablePath: String,
         defaultWorkingDirectory: String,
@@ -359,7 +386,11 @@ final class AppStore: ObservableObject {
                 authMethod: execution.authMethod,
                 didFallbackFromSubscription: execution.didFallbackFromSubscription
             )
-            try persistenceStore.upsert(ticket: completedTicket, projectID: projectID)
+            let finalTicket = try maybeAutoShift(
+                completedTicket,
+                completedAt: execution.result.completedAt
+            )
+            try persistenceStore.upsert(ticket: finalTicket, projectID: projectID)
             completeLiveOutput(for: preparedRequest, result: execution.result)
             reload()
         } catch {
@@ -584,6 +615,38 @@ final class AppStore: ObservableObject {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { $0.isEmpty == false }
             .joined(separator: "\n\n")
+    }
+
+    private func maybeAutoShift(_ ticket: Ticket, completedAt: Date) throws -> Ticket {
+        guard ticket.autoShiftOnSuccess else {
+            return ticket
+        }
+
+        let state = ticket.phaseState(for: ticket.column)
+        guard state.executionState == .completed else {
+            return ticket
+        }
+
+        return try shiftCompletedTicket(ticket, movedAt: completedAt)
+    }
+
+    private func shiftCompletedTicket(
+        _ ticket: Ticket,
+        movedAt: Date = .now
+    ) throws -> Ticket {
+        let state = ticket.phaseState(for: ticket.column)
+        guard state.executionState == .completed else {
+            throw TicketWorkflowError.currentPhaseIncomplete(ticket.column)
+        }
+
+        if let nextPhase = ticket.column.next {
+            return try workflow.move(ticket, to: nextPhase, movedAt: movedAt)
+        }
+
+        var completedTicket = ticket
+        completedTicket.completedAt = movedAt
+        completedTicket.updatedAt = movedAt
+        return completedTicket
     }
 
     private func beginLiveOutput(for request: AgentRunRequest, startedAt: Date) {

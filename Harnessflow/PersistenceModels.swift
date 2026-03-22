@@ -799,6 +799,234 @@ enum HarnessflowSchemaV4: VersionedSchema {
     }
 }
 
+enum HarnessflowSchemaV5: VersionedSchema {
+    static let versionIdentifier = Schema.Version(5, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            ProjectEntity.self,
+            TicketEntity.self,
+            PhaseStateEntity.self,
+            PhaseRunEntity.self,
+            SettingsEntity.self,
+        ]
+    }
+
+    @Model
+    final class ProjectEntity {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var workingDirectory: String
+        var createdAt: Date
+        var updatedAt: Date
+        @Relationship(deleteRule: .cascade, inverse: \TicketEntity.project) var tickets: [TicketEntity]
+
+        init(
+            id: UUID = UUID(),
+            name: String,
+            workingDirectory: String,
+            createdAt: Date = .now,
+            updatedAt: Date = .now,
+            tickets: [TicketEntity] = []
+        ) {
+            self.id = id
+            self.name = name
+            self.workingDirectory = workingDirectory
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+            self.tickets = tickets
+        }
+    }
+
+    @Model
+    final class TicketEntity {
+        @Attribute(.unique) var id: UUID
+        var title: String
+        var detailsText: String
+        var columnValue: Int
+        var autoShiftOnSuccess: Bool
+        var completedAt: Date?
+        var createdAt: Date
+        var updatedAt: Date
+        var project: ProjectEntity?
+        @Relationship(deleteRule: .cascade, inverse: \PhaseStateEntity.ticket) var phaseStates: [PhaseStateEntity]
+
+        init(
+            id: UUID,
+            title: String,
+            detailsText: String,
+            columnValue: Int,
+            autoShiftOnSuccess: Bool,
+            completedAt: Date?,
+            createdAt: Date,
+            updatedAt: Date,
+            project: ProjectEntity? = nil,
+            phaseStates: [PhaseStateEntity] = []
+        ) {
+            self.id = id
+            self.title = title
+            self.detailsText = detailsText
+            self.columnValue = columnValue
+            self.autoShiftOnSuccess = autoShiftOnSuccess
+            self.completedAt = completedAt
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+            self.project = project
+            self.phaseStates = phaseStates
+        }
+    }
+
+    @Model
+    final class PhaseStateEntity {
+        @Attribute(.unique) var id: UUID
+        var phaseValue: Int
+        var executionStateRawValue: String
+        var prompt: String
+        var lastModel: String
+        var lastStartedAt: Date?
+        var lastCompletedAt: Date?
+        var capturedOutput: String
+        var capturedError: String
+        var deliverableMarkdown: String = ""
+        var deliverableGeneratedAt: Date?
+        var deliverableSourceRunID: UUID?
+        var ownedProcessIdentifier: Int?
+        var ownedProcessExecutablePath: String?
+        var ownedProcessLaunchedAt: Date?
+        var ticket: TicketEntity?
+        @Relationship(deleteRule: .cascade, inverse: \PhaseRunEntity.phaseState) var runs: [PhaseRunEntity]
+
+        init(
+            id: UUID = UUID(),
+            phaseValue: Int,
+            executionStateRawValue: String,
+            prompt: String,
+            lastModel: String,
+            lastStartedAt: Date?,
+            lastCompletedAt: Date?,
+            capturedOutput: String,
+            capturedError: String,
+            deliverableMarkdown: String = "",
+            deliverableGeneratedAt: Date? = nil,
+            deliverableSourceRunID: UUID? = nil,
+            ownedProcessIdentifier: Int? = nil,
+            ownedProcessExecutablePath: String? = nil,
+            ownedProcessLaunchedAt: Date? = nil,
+            ticket: TicketEntity? = nil,
+            runs: [PhaseRunEntity] = []
+        ) {
+            self.id = id
+            self.phaseValue = phaseValue
+            self.executionStateRawValue = executionStateRawValue
+            self.prompt = prompt
+            self.lastModel = lastModel
+            self.lastStartedAt = lastStartedAt
+            self.lastCompletedAt = lastCompletedAt
+            self.capturedOutput = capturedOutput
+            self.capturedError = capturedError
+            self.deliverableMarkdown = deliverableMarkdown
+            self.deliverableGeneratedAt = deliverableGeneratedAt
+            self.deliverableSourceRunID = deliverableSourceRunID
+            self.ownedProcessIdentifier = ownedProcessIdentifier
+            self.ownedProcessExecutablePath = ownedProcessExecutablePath
+            self.ownedProcessLaunchedAt = ownedProcessLaunchedAt
+            self.ticket = ticket
+            self.runs = runs
+        }
+    }
+
+    @Model
+    final class PhaseRunEntity {
+        @Attribute(.unique) var id: UUID
+        var phaseValue: Int
+        var model: String
+        var authMethodRawValue: String = CodexAuthMethod.unknown.rawValue
+        var didFallbackFromSubscription: Bool = false
+        var prompt: String
+        var outputText: String
+        var errorOutputText: String
+        var startedAt: Date
+        var completedAt: Date
+        var success: Bool
+        var phaseState: PhaseStateEntity?
+
+        init(
+            id: UUID,
+            phaseValue: Int,
+            model: String,
+            authMethodRawValue: String = CodexAuthMethod.unknown.rawValue,
+            didFallbackFromSubscription: Bool = false,
+            prompt: String,
+            outputText: String,
+            errorOutputText: String,
+            startedAt: Date,
+            completedAt: Date,
+            success: Bool,
+            phaseState: PhaseStateEntity? = nil
+        ) {
+            self.id = id
+            self.phaseValue = phaseValue
+            self.model = model
+            self.authMethodRawValue = authMethodRawValue
+            self.didFallbackFromSubscription = didFallbackFromSubscription
+            self.prompt = prompt
+            self.outputText = outputText
+            self.errorOutputText = errorOutputText
+            self.startedAt = startedAt
+            self.completedAt = completedAt
+            self.success = success
+            self.phaseState = phaseState
+        }
+    }
+
+    @Model
+    final class SettingsEntity {
+        @Attribute(.unique) var key: String
+        var codexExecutablePath: String
+        var defaultWorkingDirectory: String
+        var selectedProjectID: UUID?
+        var codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue
+        var researchModel: String
+        var planModel: String
+        var implementModel: String
+        var reviewModel: String
+        var researchPrompt: String = ""
+        var planPrompt: String = ""
+        var implementPrompt: String = ""
+        var reviewPrompt: String = ""
+
+        init(
+            key: String = "default",
+            codexExecutablePath: String,
+            defaultWorkingDirectory: String,
+            selectedProjectID: UUID? = nil,
+            codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue,
+            researchModel: String,
+            planModel: String,
+            implementModel: String,
+            reviewModel: String,
+            researchPrompt: String,
+            planPrompt: String,
+            implementPrompt: String,
+            reviewPrompt: String
+        ) {
+            self.key = key
+            self.codexExecutablePath = codexExecutablePath
+            self.defaultWorkingDirectory = defaultWorkingDirectory
+            self.selectedProjectID = selectedProjectID
+            self.codexAuthStrategyRawValue = codexAuthStrategyRawValue
+            self.researchModel = researchModel
+            self.planModel = planModel
+            self.implementModel = implementModel
+            self.reviewModel = reviewModel
+            self.researchPrompt = researchPrompt
+            self.planPrompt = planPrompt
+            self.implementPrompt = implementPrompt
+            self.reviewPrompt = reviewPrompt
+        }
+    }
+}
+
 enum HarnessflowMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -806,6 +1034,7 @@ enum HarnessflowMigrationPlan: SchemaMigrationPlan {
             HarnessflowSchemaV2.self,
             HarnessflowSchemaV3.self,
             HarnessflowSchemaV4.self,
+            HarnessflowSchemaV5.self,
         ]
     }
 
@@ -814,15 +1043,16 @@ enum HarnessflowMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: HarnessflowSchemaV1.self, toVersion: HarnessflowSchemaV2.self),
             .lightweight(fromVersion: HarnessflowSchemaV2.self, toVersion: HarnessflowSchemaV3.self),
             .lightweight(fromVersion: HarnessflowSchemaV3.self, toVersion: HarnessflowSchemaV4.self),
+            .lightweight(fromVersion: HarnessflowSchemaV4.self, toVersion: HarnessflowSchemaV5.self),
         ]
     }
 }
 
-typealias ProjectEntity = HarnessflowSchemaV4.ProjectEntity
-typealias TicketEntity = HarnessflowSchemaV4.TicketEntity
-typealias PhaseStateEntity = HarnessflowSchemaV4.PhaseStateEntity
-typealias PhaseRunEntity = HarnessflowSchemaV4.PhaseRunEntity
-typealias SettingsEntity = HarnessflowSchemaV4.SettingsEntity
+typealias ProjectEntity = HarnessflowSchemaV5.ProjectEntity
+typealias TicketEntity = HarnessflowSchemaV5.TicketEntity
+typealias PhaseStateEntity = HarnessflowSchemaV5.PhaseStateEntity
+typealias PhaseRunEntity = HarnessflowSchemaV5.PhaseRunEntity
+typealias SettingsEntity = HarnessflowSchemaV5.SettingsEntity
 
 extension ProjectEntity {
     func update(name: String, workingDirectory: String, updatedAt: Date = .now) {
@@ -849,6 +1079,8 @@ extension TicketEntity {
             title: ticket.title,
             detailsText: ticket.detailsText,
             columnValue: ticket.column.rawValue,
+            autoShiftOnSuccess: ticket.autoShiftOnSuccess,
+            completedAt: ticket.completedAt,
             createdAt: ticket.createdAt,
             updatedAt: ticket.updatedAt,
             project: project
@@ -860,6 +1092,8 @@ extension TicketEntity {
         title = ticket.title
         detailsText = ticket.detailsText
         columnValue = ticket.column.rawValue
+        autoShiftOnSuccess = ticket.autoShiftOnSuccess
+        completedAt = ticket.completedAt
         createdAt = ticket.createdAt
         updatedAt = ticket.updatedAt
 
@@ -882,6 +1116,8 @@ extension TicketEntity {
             title: title,
             detailsText: detailsText,
             column: TicketPhase(rawValue: columnValue) ?? .research,
+            autoShiftOnSuccess: autoShiftOnSuccess,
+            completedAt: completedAt,
             createdAt: createdAt,
             updatedAt: updatedAt,
             phaseStates: phaseStates

@@ -7,6 +7,7 @@ struct CreateTicketSheet: View {
     @State private var title = ""
     @State private var detailsText = ""
     @State private var startingPhase: TicketPhase = .research
+    @State private var autoShiftOnSuccess = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -51,6 +52,8 @@ struct CreateTicketSheet: View {
                     )
             }
 
+            Toggle("Auto-shift on successful completion", isOn: $autoShiftOnSuccess)
+
             HStack {
                 Spacer()
 
@@ -60,7 +63,12 @@ struct CreateTicketSheet: View {
                 }
 
                 Button("Create") {
-                    store.createTicket(title: title, detailsText: detailsText, initialPhase: startingPhase)
+                    store.createTicket(
+                        title: title,
+                        detailsText: detailsText,
+                        initialPhase: startingPhase,
+                        autoShiftOnSuccess: autoShiftOnSuccess
+                    )
                     if store.errorMessage == nil {
                         resetForm()
                         isPresented = false
@@ -78,5 +86,6 @@ struct CreateTicketSheet: View {
         title = ""
         detailsText = ""
         startingPhase = .research
+        autoShiftOnSuccess = false
     }
 }

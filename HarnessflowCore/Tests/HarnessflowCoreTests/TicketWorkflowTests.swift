@@ -71,4 +71,16 @@ struct TicketWorkflowTests {
         #expect(unchanged.column == .review)
         #expect(unchanged.phaseState(for: .review).executionState == .completed)
     }
+
+    @Test
+    func moveClearsDoneTimestamp() throws {
+        var ticket = Ticket(title: "Reopened", column: .plan, completedAt: .now)
+        var plan = ticket.phaseState(for: .plan)
+        plan.executionState = .completed
+        ticket.updatePhaseState(plan)
+
+        let moved = try TicketWorkflow().move(ticket, to: .implement)
+
+        #expect(moved.completedAt == nil)
+    }
 }
