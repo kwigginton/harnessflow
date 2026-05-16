@@ -146,6 +146,124 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func questionContractExtractsValidQuestionSet() throws {
+        let output = """
+        \(AgentQuestionContract.startMarker)
+        {"id":"00000000-0000-0000-0000-000000000000","questions":[{"id":"decision","prompt":"Choose an approach.","choices":[{"id":"a","label":"A","description":"Use A."}],"allowsFreeform":false,"defaultChoiceID":"a"}]}
+        \(AgentQuestionContract.endMarker)
+        """
+
+        let questionSet = try #require(AgentQuestionContract.extractQuestionSet(from: output))
+
+        #expect(questionSet.questions.count == 1)
+        #expect(questionSet.questions[0].id == "decision")
+        #expect(questionSet.questions[0].choices[0].label == "A")
+    }
+
+    @Test
+    func applyResultMapsQuestionBlockToAwaitingInput() throws {
+        let ticket = Ticket(title: "Needs decision", column: .plan)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .plan,
+            prompt: "Plan",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let result = AgentRunResult(
+            output: """
+            I need a decision.
+            \(AgentQuestionContract.startMarker)
+            {"id":"00000000-0000-0000-0000-000000000000","questions":[{"id":"storage","prompt":"How should Q&A be stored?","choices":[{"id":"json","label":"JSON"}],"allowsFreeform":false,"defaultChoiceID":"json"}]}
+            \(AgentQuestionContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let updated = TicketExecutionService().applyResult(ticket: ticket, request: request, result: result)
+        let state = updated.phaseState(for: .plan)
+
+        #expect(state.executionState == .awaitingInput)
+        #expect(state.pendingQuestions?.questions.first?.id == "storage")
+        #expect(state.capturedOutput.contains(AgentQuestionContract.startMarker))
+        #expect(state.capturedError.isEmpty)
+        #expect(state.runs.last?.success == false)
+    }
+
+    @Test
+    func completedDeliverableClearsPendingQuestionsAndAnswers() {
+        var ticket = Ticket(title: "Complete", column: .implement)
+        var phaseState = ticket.phaseState(for: .implement)
+        phaseState.executionState = .awaitingInput
+        phaseState.pendingQuestions = AgentQuestionSet(questions: [
+            AgentQuestion(id: "decision", prompt: "Choose", choices: [AgentQuestionChoice(id: "a", label: "A")])
+        ])
+        phaseState.pendingAnswers = [AgentAnswer(questionID: "decision", choiceID: "a")]
+        ticket.updatePhaseState(phaseState)
+
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .implement,
+            prompt: "Implement",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let result = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Done
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let updated = TicketExecutionService().applyResult(ticket: ticket, request: request, result: result)
+
+        #expect(updated.phaseState(for: .implement).executionState == .completed)
+        #expect(updated.phaseState(for: .implement).pendingQuestions == nil)
+        #expect(updated.phaseState(for: .implement).pendingAnswers.isEmpty)
+    }
+
+    @Test
+    func continuationRequestIncludesPreviousOutputAndAnswers() throws {
+        var ticket = Ticket(title: "Continue", detailsText: "Need a choice", column: .plan)
+        var phaseState = ticket.phaseState(for: .plan)
+        phaseState.capturedOutput = "Previous output with questions"
+        phaseState.pendingQuestions = AgentQuestionSet(questions: [
+            AgentQuestion(
+                id: "direction",
+                prompt: "Choose direction",
+                choices: [AgentQuestionChoice(id: "fast", label: "Fast path")]
+            )
+        ])
+        ticket.updatePhaseState(phaseState)
+
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(plan: "codex-plan"),
+            phasePrompts: PhasePromptSelection(plan: "Plan base prompt")
+        )
+
+        let request = try TicketExecutionService().makeContinuationRequest(
+            for: ticket,
+            settings: settings,
+            answers: [AgentAnswer(questionID: "direction", choiceID: "fast", freeformText: "Use the fast path.")]
+        )
+
+        #expect(request.prompt.contains("Continuation Context"))
+        #expect(request.prompt.contains("Previous output with questions"))
+        #expect(request.prompt.contains("direction: Fast path"))
+        #expect(request.prompt.contains("Use the fast path."))
+        #expect(request.prompt.contains(PhaseDeliverableContract.startMarker))
+    }
+
+    @Test
     func applyResultMarksWrappedDeliverableMissingAsFailed() {
         var ticket = Ticket(title: "Missing Deliverable", column: .implement)
         var phaseState = ticket.phaseState(for: .implement)

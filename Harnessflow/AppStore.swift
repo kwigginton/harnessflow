@@ -108,6 +108,7 @@ final class AppStore: ObservableObject {
         )
         self.settings = AppSettings(defaultWorkingDirectory: defaultWorkingDirectory)
         reload()
+        refreshCodexLoginStatus()
     }
 
     var selectedTicket: Ticket? {
@@ -188,14 +189,21 @@ final class AppStore: ObservableObject {
                 self.selectedTicketID = nil
             }
             hasOpenAIAPIToken = try credentialsStore.loadToken()?.isEmpty == false
-            codexLoginStatus = readCodexLoginStatus(executablePath: settings.codexExecutablePath)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func refreshCodexLoginStatus() {
-        codexLoginStatus = readCodexLoginStatus(executablePath: settings.codexExecutablePath)
+        let executablePath = settings.codexExecutablePath
+        codexLoginStatus = .unknown("Checking Codex login status...")
+
+        Task { [weak self] in
+            let status = await Task.detached {
+                CodexCLIProvider(executablePath: executablePath).readLoginStatus()
+            }.value
+            self?.codexLoginStatus = status
+        }
     }
 
     func loadOpenAIAPIToken() -> String {
@@ -460,7 +468,93 @@ final class AppStore: ObservableObject {
                 workingDirectoryOverride: project.workingDirectory
             )
             request = preparedRequest
-            let loginStatus = readCodexLoginStatus(executablePath: settings.codexExecutablePath)
+            let loginStatus = await resolveCodexLoginStatus()
+            codexLoginStatus = loginStatus
+            let authResolver = CodexAuthResolver()
+            let resolution = try authResolver.resolve(
+                strategy: settings.codexAuthStrategy,
+                loginStatus: loginStatus,
+                hasAPIKey: token?.isEmpty == false,
+                model: preparedRequest.model
+            )
+            let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
+            try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
+            beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
+            reload()
+
+            let execution = try await executeRequest(
+                preparedRequest,
+                apiToken: token,
+                resolution: resolution
+            )
+            let completedTicket = executionService.applyResult(
+                ticket: runningTicket,
+                request: preparedRequest,
+                result: execution.result,
+                authMethod: execution.authMethod,
+                didFallbackFromSubscription: execution.didFallbackFromSubscription
+            )
+            let finalTicket = try maybeAutoShift(
+                completedTicket,
+                completedAt: execution.result.completedAt
+            )
+            try persistenceStore.upsert(ticket: finalTicket, projectID: projectID)
+            completeLiveOutput(for: preparedRequest, result: execution.result)
+            reload()
+        } catch {
+            if let request {
+                do {
+                    let currentTicket = try persistenceStore.ticket(withID: ticketID) ?? ticket
+                    let executionError = error as? CodexExecutionAttemptError
+                    let failedTicket = executionService.applyFailure(
+                        ticket: currentTicket,
+                        request: request,
+                        errorMessage: executionError?.message ?? error.localizedDescription,
+                        authMethod: executionError?.authMethod ?? .unknown,
+                        didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
+                    )
+                    try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
+                    failLiveOutput(for: request, message: executionError?.message ?? error.localizedDescription)
+                    reload()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            } else {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func submitAnswersAndContinue(ticketID: UUID, answers: [AgentAnswer]) async {
+        guard
+            var ticket = tickets.first(where: { $0.id == ticketID }),
+            let project = project(forTicketID: ticketID)
+        else {
+            return
+        }
+
+        let phase = ticket.column
+        var phaseState = ticket.phaseState(for: phase)
+        guard phaseState.pendingQuestions != nil else {
+            return
+        }
+
+        phaseState.pendingAnswers = answers
+        ticket.updatePhaseState(phaseState)
+
+        let projectID = project.id
+        var request: AgentRunRequest?
+
+        do {
+            let token = try credentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let preparedRequest = try executionService.makeContinuationRequest(
+                for: ticket,
+                settings: settings,
+                answers: answers,
+                workingDirectoryOverride: project.workingDirectory
+            )
+            request = preparedRequest
+            let loginStatus = await resolveCodexLoginStatus()
             codexLoginStatus = loginStatus
             let authResolver = CodexAuthResolver()
             let resolution = try authResolver.resolve(
@@ -581,6 +675,13 @@ final class AppStore: ObservableObject {
 
     private func readCodexLoginStatus(executablePath: String) -> CodexLoginStatus {
         CodexCLIProvider(executablePath: executablePath).readLoginStatus()
+    }
+
+    private func resolveCodexLoginStatus() async -> CodexLoginStatus {
+        let executablePath = settings.codexExecutablePath
+        return await Task.detached {
+            CodexCLIProvider(executablePath: executablePath).readLoginStatus()
+        }.value
     }
 
     private func executeRequest(
@@ -800,11 +901,17 @@ final class AppStore: ObservableObject {
             return
         }
 
-        liveOutput.standardOutput = result.output
-        liveOutput.standardError = result.errorOutput
+        liveOutput.standardOutput = result.output.trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
+        )
+        liveOutput.standardError = result.errorOutput.trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
+        )
         liveOutput.combinedText = makeCombinedOutput(
             standardOutput: result.output,
             standardError: result.errorOutput
+        ).trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
         )
         liveOutput.isRunning = false
         liveOutput.lastUpdatedAt = result.completedAt

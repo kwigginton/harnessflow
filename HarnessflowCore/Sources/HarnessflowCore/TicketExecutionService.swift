@@ -44,9 +44,46 @@ public struct TicketExecutionService: Sendable {
                 for: ticket,
                 phase: phase,
                 basePrompt: basePrompt,
-                promptAddendum: promptAddendum
+                promptAddendum: promptAddendum,
+                continuation: nil
             ),
             promptAddendum: promptAddendum,
+            model: settings.phaseModels.model(for: phase),
+            workingDirectory: workingDirectory
+        )
+    }
+
+    public func makeContinuationRequest(
+        for ticket: Ticket,
+        settings: AppSettings,
+        answers: [AgentAnswer],
+        workingDirectoryOverride: String? = nil
+    ) throws -> AgentRunRequest {
+        let phase = ticket.column
+        let phaseState = ticket.phaseState(for: phase)
+        let basePrompt = settings.phasePrompts.prompt(for: phase)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !basePrompt.isEmpty else {
+            throw TicketExecutionError.missingPrompt(phase)
+        }
+
+        let workingDirectory = (workingDirectoryOverride ?? settings.defaultWorkingDirectory)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workingDirectory.isEmpty else {
+            throw TicketExecutionError.missingWorkingDirectory
+        }
+
+        return AgentRunRequest(
+            ticketID: ticket.id,
+            phase: phase,
+            prompt: composePrompt(
+                for: ticket,
+                phase: phase,
+                basePrompt: basePrompt,
+                promptAddendum: phaseState.prompt,
+                continuation: continuationContext(for: phaseState, answers: answers)
+            ),
+            promptAddendum: phaseState.prompt,
             model: settings.phaseModels.model(for: phase),
             workingDirectory: workingDirectory
         )
@@ -63,6 +100,8 @@ public struct TicketExecutionService: Sendable {
         phaseState.capturedOutput = ""
         phaseState.capturedError = ""
         phaseState.ownedProcess = nil
+        phaseState.pendingQuestions = nil
+        phaseState.pendingAnswers = []
         updated.updatePhaseState(phaseState)
         updated.updatedAt = at
         return updated
@@ -87,11 +126,14 @@ public struct TicketExecutionService: Sendable {
     ) -> Ticket {
         var updated = ticket
         var phaseState = updated.phaseState(for: request.phase)
+        let questionSet = result.success ? AgentQuestionContract.extractQuestionSet(from: result.output) : nil
         let deliverable = result.success ? PhaseDeliverableContract.extractDeliverable(from: result.output) : nil
         let deliverableError = result.success && deliverable == nil
+            && questionSet == nil
             ? "Agent output did not include a wrapped \(request.phase.title.lowercased()) deliverable using the required Harnessflow markers."
             : nil
         let finalSuccess = result.success && deliverable != nil
+        let isAwaitingInput = result.success && questionSet != nil && deliverable == nil
         let finalErrorOutput = combinedErrorOutput(
             result.errorOutput,
             additionalMessage: deliverableError
@@ -99,7 +141,7 @@ public struct TicketExecutionService: Sendable {
         let runID = UUID()
 
         phaseState.prompt = request.promptAddendum
-        phaseState.executionState = finalSuccess ? .completed : .failed
+        phaseState.executionState = finalSuccess ? .completed : (isAwaitingInput ? .awaitingInput : .failed)
         phaseState.lastModel = request.model
         phaseState.lastStartedAt = result.startedAt
         phaseState.lastCompletedAt = result.completedAt
@@ -110,6 +152,11 @@ public struct TicketExecutionService: Sendable {
             phaseState.deliverableMarkdown = deliverable
             phaseState.deliverableGeneratedAt = result.completedAt
             phaseState.deliverableSourceRunID = runID
+            phaseState.pendingQuestions = nil
+            phaseState.pendingAnswers = []
+        } else if let questionSet {
+            phaseState.pendingQuestions = questionSet
+            phaseState.pendingAnswers = []
         }
         phaseState.runs.append(
             PhaseRun(
@@ -189,7 +236,8 @@ public struct TicketExecutionService: Sendable {
         for ticket: Ticket,
         phase: TicketPhase,
         basePrompt: String,
-        promptAddendum: String
+        promptAddendum: String,
+        continuation: String?
     ) -> String {
         var sections = [basePrompt]
 
@@ -236,7 +284,52 @@ public struct TicketExecutionService: Sendable {
             )
         }
 
+        if let continuation {
+            sections.append(continuation)
+        }
+
+        sections.append(AgentQuestionContract.instructions)
         sections.append(PhaseDeliverableContract.instructions)
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func continuationContext(for phaseState: TicketPhaseState, answers: [AgentAnswer]) -> String {
+        var sections = [
+            """
+            Continuation Context
+            Continue the same \(phaseState.phase.title) phase. The previous run stopped to ask the user for input. Use the answers below, continue from the prior work, and return the normal Harnessflow deliverable when complete.
+            """
+        ]
+
+        if phaseState.capturedOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            sections.append(
+                """
+                Previous Agent Output
+                \(phaseState.capturedOutput)
+                """
+            )
+        }
+
+        if let questionSet = phaseState.pendingQuestions {
+            let answerLines = answers.map { answer in
+                let question = questionSet.questions.first(where: { $0.id == answer.questionID })
+                let choiceLabel = question?.choices.first(where: { $0.id == answer.choiceID })?.label
+                let selected = choiceLabel ?? answer.choiceID ?? "(no choice)"
+                let freeform = answer.freeformText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if freeform.isEmpty {
+                    return "- \(answer.questionID): \(selected)"
+                }
+                return "- \(answer.questionID): \(selected)\n  Answer: \(freeform)"
+            }
+
+            sections.append(
+                """
+                User Answers
+                \(answerLines.isEmpty ? "(none provided)" : answerLines.joined(separator: "\n"))
+                """
+            )
+        }
+
         return sections.joined(separator: "\n\n")
     }
 

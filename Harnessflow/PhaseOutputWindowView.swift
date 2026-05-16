@@ -161,10 +161,6 @@ struct PhaseOutputWindowView: View {
         persistedState: TicketPhaseState?
     ) -> String {
         let text = displayText(liveOutput: liveOutput, persistedState: persistedState)
-        guard liveOutput?.isRunning == true else {
-            return text
-        }
-
         return text.liveOutputTail(maxCharacters: 12_000)
     }
 

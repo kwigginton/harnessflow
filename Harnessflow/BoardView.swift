@@ -286,6 +286,8 @@ private struct TicketCardView: View {
             .secondary
         case .running:
             .orange
+        case .awaitingInput:
+            .blue
         case .completed:
             .green
         case .failed:

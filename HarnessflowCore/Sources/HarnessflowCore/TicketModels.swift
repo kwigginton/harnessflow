@@ -51,11 +51,17 @@ public enum TicketPhase: Int, CaseIterable, Codable, Hashable, Identifiable, Sen
 public enum PhaseExecutionState: String, Codable, CaseIterable, Equatable, Sendable {
     case idle
     case running
+    case awaitingInput
     case completed
     case failed
 
     public var displayTitle: String {
-        rawValue.capitalized
+        switch self {
+        case .awaitingInput:
+            "Awaiting Input"
+        default:
+            rawValue.capitalized
+        }
     }
 }
 
@@ -128,6 +134,8 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
     public var deliverableGeneratedAt: Date?
     public var deliverableSourceRunID: UUID?
     public var ownedProcess: OwnedProcessReference?
+    public var pendingQuestions: AgentQuestionSet?
+    public var pendingAnswers: [AgentAnswer]
     public var runs: [PhaseRun]
 
     public var id: TicketPhase { phase }
@@ -146,6 +154,8 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         deliverableGeneratedAt: Date? = nil,
         deliverableSourceRunID: UUID? = nil,
         ownedProcess: OwnedProcessReference? = nil,
+        pendingQuestions: AgentQuestionSet? = nil,
+        pendingAnswers: [AgentAnswer] = [],
         runs: [PhaseRun] = []
     ) {
         self.phase = phase
@@ -160,6 +170,8 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         self.deliverableGeneratedAt = deliverableGeneratedAt
         self.deliverableSourceRunID = deliverableSourceRunID
         self.ownedProcess = ownedProcess
+        self.pendingQuestions = pendingQuestions
+        self.pendingAnswers = pendingAnswers
         self.runs = runs
     }
 
@@ -178,6 +190,8 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
         deliverableGeneratedAt = nil
         deliverableSourceRunID = nil
         ownedProcess = nil
+        pendingQuestions = nil
+        pendingAnswers = []
     }
 }
 

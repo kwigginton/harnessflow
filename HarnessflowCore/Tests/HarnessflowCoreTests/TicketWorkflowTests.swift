@@ -14,6 +14,21 @@ struct TicketWorkflowTests {
     }
 
     @Test
+    func forwardMoveIsBlockedWhileAwaitingInput() throws {
+        var ticket = Ticket(title: "Needs answers")
+        var research = ticket.phaseState(for: .research)
+        research.executionState = .awaitingInput
+        research.pendingQuestions = AgentQuestionSet(questions: [
+            AgentQuestion(id: "decision", prompt: "Choose")
+        ])
+        ticket.updatePhaseState(research)
+
+        #expect(throws: TicketWorkflowError.currentPhaseIncomplete(.research)) {
+            _ = try TicketWorkflow().move(ticket, to: .plan)
+        }
+    }
+
+    @Test
     func adjacentForwardMoveSucceedsAfterCompletion() throws {
         var ticket = Ticket(title: "Ready")
         var research = ticket.phaseState(for: .research)
@@ -46,6 +61,10 @@ struct TicketWorkflowTests {
         implement.capturedOutput = "done"
         implement.deliverableMarkdown = "## Implemented"
         implement.deliverableGeneratedAt = .now
+        implement.pendingQuestions = AgentQuestionSet(questions: [
+            AgentQuestion(id: "decision", prompt: "Choose")
+        ])
+        implement.pendingAnswers = [AgentAnswer(questionID: "decision", choiceID: "a")]
         implement.runs = [run]
         ticket.updatePhaseState(implement)
 
@@ -56,6 +75,8 @@ struct TicketWorkflowTests {
         #expect(reset.executionState == .idle)
         #expect(reset.capturedOutput.isEmpty)
         #expect(reset.deliverableMarkdown.isEmpty)
+        #expect(reset.pendingQuestions == nil)
+        #expect(reset.pendingAnswers.isEmpty)
         #expect(reset.runs.count == 1)
     }
 
