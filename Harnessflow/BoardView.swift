@@ -194,7 +194,14 @@ private struct TicketCardView: View {
 
                         Spacer()
 
-                        if currentState.executionState == .idle || currentState.executionState == .failed {
+                        if showsShiftButton {
+                            Button("Shift >") {
+                                store.shiftTicketForward(id: ticket.id)
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        } else if currentState.executionState == .idle || currentState.executionState == .failed {
                             Image(systemName: "exclamationmark.circle")
                                 .foregroundStyle(currentState.executionState == .failed ? .red : .secondary)
                         }
@@ -211,17 +218,6 @@ private struct TicketCardView: View {
                 )
             }
             .buttonStyle(.plain)
-
-            if showsShiftButton {
-                HStack {
-                    Spacer()
-                    Button("Shift >") {
-                        store.shiftTicketForward(id: ticket.id)
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption.weight(.semibold))
-                }
-            }
         }
         .draggable(ticket.id.uuidString)
     }

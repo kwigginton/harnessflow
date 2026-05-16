@@ -844,7 +844,7 @@ enum HarnessflowSchemaV5: VersionedSchema {
         var title: String
         var detailsText: String
         var columnValue: Int
-        var autoShiftOnSuccess: Bool
+        var autoShiftOnSuccess: Bool = false
         var completedAt: Date?
         var createdAt: Date
         var updatedAt: Date
