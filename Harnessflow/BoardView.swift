@@ -281,18 +281,26 @@ private struct TicketCardView: View {
     }
 
     private var statusColor: Color {
+        if currentState.needsFinalAdjustments {
+            return .orange
+        }
+
         switch currentState.executionState {
         case .idle:
-            .secondary
+            return .secondary
         case .running:
-            .orange
+            return .orange
         case .awaitingInput:
-            .blue
+            return .blue
         case .completed:
-            .green
+            return .green
         case .failed:
-            .red
+            return .red
         }
+    }
+
+    private var statusTitle: String {
+        currentState.needsFinalAdjustments ? "Final Adjustments" : currentState.executionState.displayTitle
     }
 
     private var showsShiftButton: Bool {
@@ -320,7 +328,7 @@ private struct TicketCardView: View {
                     }
 
                     HStack {
-                        Text(currentState.executionState.displayTitle)
+                        Text(statusTitle)
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)

@@ -94,6 +94,58 @@ struct TicketWorkflowTests {
     }
 
     @Test
+    func reviewCompletionMovesToDoneWhenFinalPassIsNotRequired() throws {
+        var ticket = Ticket(title: "Reviewed", column: .review)
+        var review = ticket.phaseState(for: .review)
+        review.executionState = .completed
+        review.deliverableMarkdown = """
+        ## Findings
+        None.
+
+        Final Pass Required: No
+        """
+        ticket.updatePhaseState(review)
+
+        let completedAt = Date(timeIntervalSince1970: 1_000)
+        let completed = try TicketWorkflow().completeAfterReview(ticket, completedAt: completedAt)
+
+        #expect(completed.completedAt == completedAt)
+        #expect(completed.column == .review)
+    }
+
+    @Test
+    func reviewCompletionStaysInReviewWhenFinalPassIsRequired() throws {
+        var ticket = Ticket(title: "Needs final pass", column: .review)
+        var review = ticket.phaseState(for: .review)
+        review.executionState = .completed
+        review.deliverableMarkdown = """
+        ## Findings
+        Final adjustments remain.
+
+        Final Pass Required: Yes
+        """
+        ticket.updatePhaseState(review)
+
+        #expect(throws: TicketWorkflowError.reviewFinalPassRequired) {
+            _ = try TicketWorkflow().completeAfterReview(ticket)
+        }
+        #expect(ticket.phaseState(for: .review).needsFinalAdjustments)
+    }
+
+    @Test
+    func reviewCompletionRequiresStandardFinalPassDecision() throws {
+        var ticket = Ticket(title: "Old review", column: .review)
+        var review = ticket.phaseState(for: .review)
+        review.executionState = .completed
+        review.deliverableMarkdown = "## Findings\nNone."
+        ticket.updatePhaseState(review)
+
+        #expect(throws: TicketWorkflowError.reviewFinalPassUndetermined) {
+            _ = try TicketWorkflow().completeAfterReview(ticket)
+        }
+    }
+
+    @Test
     func moveClearsDoneTimestamp() throws {
         var ticket = Ticket(title: "Reopened", column: .plan, completedAt: .now)
         var plan = ticket.phaseState(for: .plan)

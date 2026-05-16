@@ -140,6 +140,9 @@ public struct TicketPhaseState: Identifiable, Codable, Equatable, Sendable {
 
     public var id: TicketPhase { phase }
     public var hasDeliverable: Bool { deliverableMarkdown.isEmpty == false }
+    public var needsFinalAdjustments: Bool {
+        phase == .review && ReviewFinalPassContract.requiresFinalPass(in: deliverableMarkdown) == true
+    }
 
     public init(
         phase: TicketPhase,

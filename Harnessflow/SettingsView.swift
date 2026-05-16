@@ -5,6 +5,7 @@ import HarnessflowCore
 private enum SettingsPage: Hashable {
     case general
     case openAI
+    case linear
 }
 
 struct SettingsView: View {
@@ -21,6 +22,9 @@ struct SettingsView: View {
                 Section("Providers") {
                     Label("OpenAI", systemImage: "key.horizontal")
                         .tag(SettingsPage.openAI)
+
+                    Label("Linear", systemImage: "link")
+                        .tag(SettingsPage.linear)
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
@@ -31,6 +35,8 @@ struct SettingsView: View {
                     GeneralSettingsPage()
                 case .openAI:
                     OpenAISettingsPage()
+                case .linear:
+                    LinearSettingsPage()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -350,6 +356,75 @@ private struct OpenAISettingsPage: View {
         }
 
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private struct LinearSettingsPage: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var apiToken = ""
+    @State private var isValidating = false
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Linear Authentication")
+                        .font(.title3.weight(.semibold))
+
+                    Text("Harnessflow uses this API key to import issue titles, descriptions, comments, and file references into new tickets.")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+
+                SecureField("lin_api_...", text: $apiToken)
+                    .textFieldStyle(.roundedBorder)
+
+                Label(
+                    store.hasLinearAPIToken ? "Token saved in Keychain." : "No token saved.",
+                    systemImage: store.hasLinearAPIToken ? "checkmark.circle.fill" : "exclamationmark.circle"
+                )
+                .foregroundStyle(store.hasLinearAPIToken ? .green : .secondary)
+
+                Text(store.linearValidationMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Text("The token is stored in the macOS Keychain, not in the Harnessflow database.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    Button("Remove Token", role: .destructive) {
+                        apiToken = ""
+                        store.deleteLinearAPIToken()
+                    }
+                    .disabled(store.hasLinearAPIToken == false && apiToken.isEmpty)
+
+                    Spacer()
+
+                    Button("Validate") {
+                        isValidating = true
+                        Task {
+                            await store.validateLinearAPIToken()
+                            isValidating = false
+                        }
+                    }
+                    .disabled(isValidating || store.hasLinearAPIToken == false)
+
+                    Button("Save API Key") {
+                        store.saveLinearAPIToken(apiToken)
+                        apiToken = store.loadLinearAPIToken()
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(20)
+        .onAppear {
+            apiToken = store.loadLinearAPIToken()
+        }
     }
 }
 

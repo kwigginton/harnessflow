@@ -104,6 +104,53 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func reviewRequestIncludesFinalPassContract() throws {
+        let ticket = Ticket(title: "Review exit", column: .review)
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(review: "codex-review"),
+            phasePrompts: PhasePromptSelection(review: "Review base prompt")
+        )
+
+        let request = try TicketExecutionService().makeRequest(for: ticket, settings: settings)
+
+        #expect(request.phase == .review)
+        #expect(request.prompt.contains("Review Exit Check"))
+        #expect(request.prompt.contains("Final Pass Required: Yes"))
+        #expect(request.prompt.contains("Final Pass Required: No"))
+    }
+
+    @Test
+    func reviewRequestSwitchesToFinalAdjustmentPassWhenPreviousReviewRequiresIt() throws {
+        var ticket = Ticket(title: "Final pass", column: .review)
+        var reviewState = ticket.phaseState(for: .review)
+        reviewState.executionState = .completed
+        reviewState.deliverableMarkdown = """
+        ## Findings
+        Fix the remaining validation copy.
+
+        Final Pass Required: Yes
+
+        ## Final Adjustments
+        - Update the final delivery wording.
+        """
+        ticket.updatePhaseState(reviewState)
+
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(review: "codex-review"),
+            phasePrompts: PhasePromptSelection(review: "Review base prompt")
+        )
+
+        let request = try TicketExecutionService().makeRequest(for: ticket, settings: settings)
+
+        #expect(request.prompt.contains("Final Adjustment Pass"))
+        #expect(request.prompt.contains("This run is not a fresh review pass."))
+        #expect(request.prompt.contains("Implement only the requested final adjustments"))
+        #expect(request.prompt.contains("Fix the remaining validation copy."))
+    }
+
+    @Test
     func applyResultMapsExitStatusToCompleted() {
         var ticket = Ticket(title: "Success", column: .research)
         var phaseState = ticket.phaseState(for: .research)

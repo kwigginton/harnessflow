@@ -33,6 +33,59 @@ public enum PhaseDeliverableContract {
     }
 }
 
+public enum ReviewFinalPassContract {
+    public static let requiredPrefix = "Final Pass Required:"
+
+    public static var instructions: String {
+        """
+        Review Exit Check
+        The review deliverable must include exactly one final-pass decision line:
+
+        \(requiredPrefix) Yes
+        or
+        \(requiredPrefix) No
+
+        Use "Yes" when the ticket needs final adjustments before it can move to Done. Use "No" only when the final deliverable is ready to move to Done. If the answer is "Yes", include a "Final Adjustments" section with the concrete remaining work.
+        """
+    }
+
+    public static func requiresFinalPass(in markdown: String) -> Bool? {
+        for line in markdown.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.range(
+                of: requiredPrefix,
+                options: [.anchored, .caseInsensitive]
+            ) != nil else {
+                continue
+            }
+
+            let decision = trimmed
+                .dropFirst(requiredPrefix.count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let normalizedDecision = decision
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+
+            if normalizedDecision == "yes"
+                || normalizedDecision == "y"
+                || normalizedDecision == "true"
+                || decision.hasPrefix("yes ") {
+                return true
+            }
+            if normalizedDecision == "no"
+                || normalizedDecision == "n"
+                || normalizedDecision == "false"
+                || normalizedDecision == "not required"
+                || normalizedDecision == "none"
+                || decision.hasPrefix("no ") {
+                return false
+            }
+        }
+
+        return nil
+    }
+}
+
 public enum PhasePromptTemplateLoader {
     public static func bundledDefaults() -> PhasePromptSelection {
         PhasePromptSelection(
@@ -109,6 +162,7 @@ public enum PhasePromptTemplateLoader {
     - Findings, ordered by severity
     - Validation performed
     - Residual risks or test gaps
+    - Final pass decision using the required review exit check
     - Final recommendation
 
     Follow the shared output contract exactly.

@@ -85,6 +85,8 @@ final class AppStore: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var errorRecoveryAction: ErrorRecoveryAction?
     @Published private(set) var hasOpenAIAPIToken = false
+    @Published private(set) var hasLinearAPIToken = false
+    @Published private(set) var linearValidationMessage = "Linear token has not been checked yet."
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
     @Published private var livePhaseOutputs: [LivePhaseOutputKey: LivePhaseOutput] = [:]
     private var pendingLiveOutputChunks: [LivePhaseOutputKey: PendingLiveOutput] = [:]
@@ -92,7 +94,9 @@ final class AppStore: ObservableObject {
     private var ticketProjectIDs: [UUID: UUID] = [:]
 
     private let persistenceStore: PersistenceStore
-    private let credentialsStore: OpenAICredentialsStore
+    private let credentialsStore: KeychainTokenStore
+    private let linearCredentialsStore: KeychainTokenStore
+    private let linearIssueImporter: any LinearIssueImporting
     private let workflow = TicketWorkflow()
     private let executionService = TicketExecutionService()
     private let processSupervisor = OwnedProcessSupervisor()
@@ -102,10 +106,18 @@ final class AppStore: ObservableObject {
             modelContainer: modelContainer,
             defaultWorkingDirectory: defaultWorkingDirectory
         )
-        self.credentialsStore = OpenAICredentialsStore(
-            service: Bundle.main.bundleIdentifier ?? "com.kenw.harnessflow",
-            account: "openai.api-token"
+        let keychainService = Bundle.main.bundleIdentifier ?? "com.kenw.harnessflow"
+        self.credentialsStore = KeychainTokenStore(
+            service: keychainService,
+            account: "openai.api-token",
+            tokenDescription: "OpenAI API token"
         )
+        self.linearCredentialsStore = KeychainTokenStore(
+            service: keychainService,
+            account: "linear.api-token",
+            tokenDescription: "Linear API token"
+        )
+        self.linearIssueImporter = LinearGraphQLClient()
         self.settings = AppSettings(defaultWorkingDirectory: defaultWorkingDirectory)
         reload()
         refreshCodexLoginStatus()
@@ -189,6 +201,7 @@ final class AppStore: ObservableObject {
                 self.selectedTicketID = nil
             }
             hasOpenAIAPIToken = try credentialsStore.loadToken()?.isEmpty == false
+            hasLinearAPIToken = try linearCredentialsStore.loadToken()?.isEmpty == false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -230,6 +243,64 @@ final class AppStore: ObservableObject {
             hasOpenAIAPIToken = false
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadLinearAPIToken() -> String {
+        do {
+            return try linearCredentialsStore.loadToken() ?? ""
+        } catch {
+            errorMessage = error.localizedDescription
+            return ""
+        }
+    }
+
+    func saveLinearAPIToken(_ token: String) {
+        do {
+            try linearCredentialsStore.saveToken(token)
+            hasLinearAPIToken = token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            linearValidationMessage = hasLinearAPIToken
+                ? "Linear token saved in Keychain."
+                : "No Linear token saved."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteLinearAPIToken() {
+        do {
+            try linearCredentialsStore.deleteToken()
+            hasLinearAPIToken = false
+            linearValidationMessage = "No Linear token saved."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func validateLinearAPIToken() async {
+        errorMessage = nil
+
+        do {
+            let token = try linearCredentialsStore.loadToken() ?? ""
+            let viewer = try await linearIssueImporter.validateToken(token)
+            linearValidationMessage = "Connected to Linear as \(viewer.name)."
+            hasLinearAPIToken = true
+        } catch {
+            linearValidationMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func importLinearIssue(identifier: String) async throws -> LinearIssueImport {
+        errorMessage = nil
+        do {
+            let token = try linearCredentialsStore.loadToken() ?? ""
+            let issue = try await linearIssueImporter.importIssue(identifier: identifier, apiToken: token)
+            hasLinearAPIToken = token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return issue
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
         }
     }
 
@@ -844,10 +915,7 @@ final class AppStore: ObservableObject {
             return try workflow.move(ticket, to: nextPhase, movedAt: movedAt)
         }
 
-        var completedTicket = ticket
-        completedTicket.completedAt = movedAt
-        completedTicket.updatedAt = movedAt
-        return completedTicket
+        return try workflow.completeAfterReview(ticket, completedAt: movedAt)
     }
 
     private func beginLiveOutput(for request: AgentRunRequest, startedAt: Date) {
@@ -1134,9 +1202,10 @@ private struct CodexExecutionAttemptError: LocalizedError {
     }
 }
 
-private struct OpenAICredentialsStore {
+private struct KeychainTokenStore {
     let service: String
     let account: String
+    let tokenDescription: String
 
     func loadToken() throws -> String? {
         var query = baseQuery
@@ -1152,13 +1221,13 @@ private struct OpenAICredentialsStore {
                 let data = item as? Data,
                 let token = String(data: data, encoding: .utf8)
             else {
-                throw OpenAICredentialsStoreError.invalidStoredToken
+                throw KeychainTokenStoreError.invalidStoredToken(tokenDescription)
             }
             return token
         case errSecItemNotFound:
             return nil
         default:
-            throw OpenAICredentialsStoreError.keychainFailure(status)
+            throw KeychainTokenStoreError.keychainFailure(status)
         }
     }
 
@@ -1183,17 +1252,17 @@ private struct OpenAICredentialsStore {
             query[kSecValueData as String] = data
             let addStatus = SecItemAdd(query as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
-                throw OpenAICredentialsStoreError.keychainFailure(addStatus)
+                throw KeychainTokenStoreError.keychainFailure(addStatus)
             }
         default:
-            throw OpenAICredentialsStoreError.keychainFailure(updateStatus)
+            throw KeychainTokenStoreError.keychainFailure(updateStatus)
         }
     }
 
     func deleteToken() throws {
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw OpenAICredentialsStoreError.keychainFailure(status)
+            throw KeychainTokenStoreError.keychainFailure(status)
         }
     }
 
@@ -1206,14 +1275,14 @@ private struct OpenAICredentialsStore {
     }
 }
 
-private enum OpenAICredentialsStoreError: LocalizedError {
-    case invalidStoredToken
+private enum KeychainTokenStoreError: LocalizedError {
+    case invalidStoredToken(String)
     case keychainFailure(OSStatus)
 
     var errorDescription: String? {
         switch self {
-        case .invalidStoredToken:
-            return "Stored OpenAI API token could not be read from Keychain."
+        case let .invalidStoredToken(tokenDescription):
+            return "Stored \(tokenDescription) could not be read from Keychain."
         case let .keychainFailure(status):
             let fallback = "Keychain operation failed with status \(status)."
             if let message = SecCopyErrorMessageString(status, nil) as String? {

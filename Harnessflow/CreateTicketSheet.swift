@@ -1,10 +1,21 @@
 import SwiftUI
 import HarnessflowCore
 
+private enum CreateTicketMode: String, CaseIterable, Identifiable {
+    case manual = "Manual"
+    case linear = "Linear"
+
+    var id: Self { self }
+}
+
 struct CreateTicketSheet: View {
     @EnvironmentObject private var store: AppStore
     @Binding var isPresented: Bool
     let project: ProjectRecord
+    @State private var mode: CreateTicketMode = .manual
+    @State private var linearIdentifier = ""
+    @State private var isImportingLinearIssue = false
+    @State private var linearImportError: String?
     @State private var title = ""
     @State private var detailsText = ""
     @State private var startingPhase: TicketPhase = .research
@@ -27,6 +38,41 @@ struct CreateTicketSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            Picker("Create Mode", selection: $mode) {
+                ForEach(CreateTicketMode.allCases) { mode in
+                    Text(mode.rawValue)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if mode == .linear {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField("Linear issue identifier", text: $linearIdentifier)
+                            .textFieldStyle(.roundedBorder)
+
+                        Button("Import") {
+                            importLinearIssue()
+                        }
+                        .disabled(isImportingLinearIssue || linearIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    if isImportingLinearIssue {
+                        ProgressView("Importing from Linear...")
+                            .controlSize(.small)
+                    } else if let linearImportError {
+                        Label(linearImportError, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Imported content remains editable before the ticket is created.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
 
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
@@ -90,17 +136,44 @@ struct CreateTicketSheet: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(isImportingLinearIssue)
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 520)
         .onAppear(perform: resetForm)
     }
 
     private func resetForm() {
+        mode = .manual
+        linearIdentifier = ""
+        isImportingLinearIssue = false
+        linearImportError = nil
         title = ""
         detailsText = ""
         startingPhase = .research
         autoShiftOnSuccess = false
+    }
+
+    private func importLinearIssue() {
+        let identifier = linearIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard identifier.isEmpty == false else {
+            linearImportError = LinearImportError.missingIdentifier.localizedDescription
+            return
+        }
+
+        isImportingLinearIssue = true
+        linearImportError = nil
+
+        Task {
+            do {
+                let issue = try await store.importLinearIssue(identifier: identifier)
+                title = issue.harnessflowTitle
+                detailsText = LinearIssueImportFormatter().markdown(for: issue)
+            } catch {
+                linearImportError = error.localizedDescription
+            }
+            isImportingLinearIssue = false
+        }
     }
 }

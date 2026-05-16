@@ -284,13 +284,41 @@ public struct TicketExecutionService: Sendable {
             )
         }
 
+        if let finalAdjustmentContext = finalAdjustmentContext(for: ticket, phase: phase) {
+            sections.append(finalAdjustmentContext)
+        }
+
         if let continuation {
             sections.append(continuation)
         }
 
         sections.append(AgentQuestionContract.instructions)
+        if phase == .review {
+            sections.append(ReviewFinalPassContract.instructions)
+        }
         sections.append(PhaseDeliverableContract.instructions)
         return sections.joined(separator: "\n\n")
+    }
+
+    private func finalAdjustmentContext(for ticket: Ticket, phase: TicketPhase) -> String? {
+        guard phase == .review else {
+            return nil
+        }
+
+        let reviewState = ticket.phaseState(for: .review)
+        guard reviewState.needsFinalAdjustments else {
+            return nil
+        }
+
+        return """
+        Final Adjustment Pass
+        The previous review deliverable requested final adjustments. This run is not a fresh review pass.
+
+        Implement only the requested final adjustments in the current working directory, then inspect the final deliverable before deciding whether the ticket can move to Done. Keep the work in the Review state and preserve the existing phase history.
+
+        Previous Review Deliverable
+        \(reviewState.deliverableMarkdown)
+        """
     }
 
     private func continuationContext(for phaseState: TicketPhaseState, answers: [AgentAnswer]) -> String {

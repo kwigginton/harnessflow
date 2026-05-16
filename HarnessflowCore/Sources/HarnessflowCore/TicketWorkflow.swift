@@ -3,6 +3,8 @@ import Foundation
 public enum TicketWorkflowError: LocalizedError, Equatable, Sendable {
     case invalidTransition(from: TicketPhase, to: TicketPhase)
     case currentPhaseIncomplete(TicketPhase)
+    case reviewFinalPassRequired
+    case reviewFinalPassUndetermined
 
     public var errorDescription: String? {
         switch self {
@@ -10,6 +12,10 @@ public enum TicketWorkflowError: LocalizedError, Equatable, Sendable {
             "Cannot move a ticket from \(from.title) to \(to.title)."
         case let .currentPhaseIncomplete(phase):
             "\(phase.title) must complete successfully before moving forward."
+        case .reviewFinalPassRequired:
+            "Review requested final adjustments. Keep the ticket in Review until the final pass is complete."
+        case .reviewFinalPassUndetermined:
+            "Review must include a final-pass decision before the ticket can move to Done."
         }
     }
 }
@@ -54,5 +60,28 @@ public struct TicketWorkflow: Sendable {
         }
 
         return updated
+    }
+
+    public func completeAfterReview(_ ticket: Ticket, completedAt: Date = .now) throws -> Ticket {
+        guard ticket.column == .review else {
+            throw TicketWorkflowError.invalidTransition(from: ticket.column, to: .review)
+        }
+
+        let state = ticket.phaseState(for: .review)
+        guard state.executionState == .completed else {
+            throw TicketWorkflowError.currentPhaseIncomplete(.review)
+        }
+
+        switch ReviewFinalPassContract.requiresFinalPass(in: state.deliverableMarkdown) {
+        case .some(true):
+            throw TicketWorkflowError.reviewFinalPassRequired
+        case .some(false):
+            var completedTicket = ticket
+            completedTicket.completedAt = completedAt
+            completedTicket.updatedAt = completedAt
+            return completedTicket
+        case .none:
+            throw TicketWorkflowError.reviewFinalPassUndetermined
+        }
     }
 }
