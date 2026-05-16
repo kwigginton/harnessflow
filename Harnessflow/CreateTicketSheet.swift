@@ -4,6 +4,7 @@ import HarnessflowCore
 struct CreateTicketSheet: View {
     @EnvironmentObject private var store: AppStore
     @Binding var isPresented: Bool
+    let project: ProjectRecord
     @State private var title = ""
     @State private var detailsText = ""
     @State private var startingPhase: TicketPhase = .research
@@ -13,6 +14,19 @@ struct CreateTicketSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Create Ticket")
                 .font(.title3.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.name)
+                    .font(.subheadline.weight(.semibold))
+                Text(project.workingDirectory)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             TextField("Title", text: $title)
                 .textFieldStyle(.roundedBorder)
@@ -66,6 +80,7 @@ struct CreateTicketSheet: View {
                     store.createTicket(
                         title: title,
                         detailsText: detailsText,
+                        projectID: project.id,
                         initialPhase: startingPhase,
                         autoShiftOnSuccess: autoShiftOnSuccess
                     )

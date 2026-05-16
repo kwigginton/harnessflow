@@ -102,16 +102,6 @@ struct TicketDetailView: View {
                                             .foregroundStyle(.secondary)
                                     }
 
-                                    if let liveOutput = store.liveOutput(for: ticket.id, phase: outputPhase),
-                                       outputState.executionState == .running {
-                                        Text(
-                                            liveOutput.processIdentifier.map { "Attached to live process PID \($0)." }
-                                                ?? "Waiting for process attachment."
-                                        )
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                    }
-
                                     if outputState.executionState == .running {
                                         if outputState.ownedProcess != nil {
                                             Text(processSummary(for: outputState, liveOutput: store.liveOutput(for: ticket.id, phase: outputPhase)))

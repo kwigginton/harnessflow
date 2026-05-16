@@ -4,21 +4,7 @@ import HarnessflowCore
 
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var isShowingCreateSheet = false
     @State private var isShowingCreateProjectSheet = false
-
-    private var projectMenuTitle: String {
-        store.selectedProject?.name ?? "Project"
-    }
-
-    private var directoryMenuTitle: String {
-        guard let workingDirectory = store.selectedProject?.workingDirectory else {
-            return "Directory"
-        }
-
-        let lastPathComponent = URL(fileURLWithPath: workingDirectory).lastPathComponent
-        return lastPathComponent.isEmpty ? workingDirectory : lastPathComponent
-    }
 
     var body: some View {
         PersistentHSplitView(
@@ -36,52 +22,18 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Harnessflow")
         .toolbar {
-            ToolbarItem {
-                ProjectToolbarControl(
-                    title: projectMenuTitle,
-                    projects: store.projects,
-                    selectedProjectID: store.selectedProjectID,
-                    onSelectProject: store.selectProject(_:),
-                    onCreateProject: {
-                        isShowingCreateProjectSheet = true
-                    }
-                )
-            }
-
             ToolbarItemGroup {
-                Menu {
-                    if let project = store.selectedProject {
-                        Text(project.workingDirectory)
-                            .textSelection(.enabled)
-
-                        Divider()
-
-                        Button("Choose Folder…") {
-                            chooseProjectDirectory()
-                        }
-                    } else {
-                        Text("No Project Selected")
-                    }
-                } label: {
-                    Label(directoryMenuTitle, systemImage: "folder")
-                }
-                .disabled(store.hasSelectedProject == false)
-
                 Button {
-                    isShowingCreateSheet = true
+                    isShowingCreateProjectSheet = true
                 } label: {
-                    Label("Create Ticket", systemImage: "plus.rectangle.on.rectangle")
+                    Label("Add Working Directory", systemImage: "plus")
                 }
-                .disabled(store.hasSelectedProject == false)
+                .help("Add Working Directory")
 
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
                 }
             }
-        }
-        .sheet(isPresented: $isShowingCreateSheet) {
-            CreateTicketSheet(isPresented: $isShowingCreateSheet)
-                .environmentObject(store)
         }
         .sheet(isPresented: $isShowingCreateProjectSheet) {
             CreateProjectSheet(isPresented: $isShowingCreateProjectSheet)
@@ -113,16 +65,6 @@ struct ContentView: View {
             }
         )
     }
-
-    private func chooseProjectDirectory() {
-        guard let project = store.selectedProject else {
-            return
-        }
-        guard let selectedDirectory = chooseDirectory(startingAt: project.workingDirectory) else {
-            return
-        }
-        store.updateSelectedProjectDirectory(selectedDirectory)
-    }
 }
 
 private struct CreateProjectSheet: View {
@@ -133,10 +75,10 @@ private struct CreateProjectSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Create Project")
+            Text("Add Working Directory")
                 .font(.title3.weight(.semibold))
 
-            TextField("Project Name", text: $name)
+            TextField("Directory Name", text: $name)
                 .textFieldStyle(.roundedBorder)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -159,6 +101,30 @@ private struct CreateProjectSheet: View {
                 }
             }
 
+            if store.archivedDirectorySummaries.isEmpty == false {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Prior Directories")
+                        .font(.subheadline.weight(.semibold))
+
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(store.archivedDirectorySummaries) { summary in
+                                ArchivedDirectorySummaryRow(summary: summary) {
+                                    store.restoreDirectoryRow(projectID: summary.project.id)
+                                    if store.errorMessage == nil {
+                                        resetForm()
+                                        isPresented = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                }
+            }
+
             HStack {
                 Spacer()
 
@@ -167,7 +133,7 @@ private struct CreateProjectSheet: View {
                     isPresented = false
                 }
 
-                Button("Create") {
+                Button("Add") {
                     store.createProject(name: name, workingDirectory: workingDirectory)
                     if store.errorMessage == nil {
                         resetForm()
@@ -179,13 +145,67 @@ private struct CreateProjectSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 560)
         .onAppear(perform: resetForm)
     }
 
     private func resetForm() {
         name = ""
         workingDirectory = store.selectedProject?.workingDirectory ?? FileManager.default.currentDirectoryPath
+    }
+}
+
+private struct ArchivedDirectorySummaryRow: View {
+    let summary: AppStore.ArchivedDirectorySummary
+    let onRestore: () -> Void
+
+    private var phaseSummary: String {
+        [
+            ("R", summary.researchCount),
+            ("P", summary.planCount),
+            ("I", summary.implementCount),
+            ("V", summary.reviewCount),
+        ]
+        .map { "\($0.0) \($0.1)" }
+        .joined(separator: "  ")
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(summary.project.name)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+
+                    Text("\(summary.totalCount) tasks")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(summary.project.workingDirectory)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                Text("\(summary.activeCount) active  \(summary.doneCount) done  \(summary.runningCount) running  \(phaseSummary)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Button("Restore", action: onRestore)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 
@@ -207,64 +227,4 @@ private func chooseDirectory(startingAt path: String?) -> String? {
         return nil
     }
     return panel.url?.path
-}
-
-private struct ProjectToolbarControl: View {
-    let title: String
-    let projects: [ProjectRecord]
-    let selectedProjectID: UUID?
-    let onSelectProject: (UUID) -> Void
-    let onCreateProject: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Menu {
-                if projects.isEmpty {
-                    Text("No Projects")
-                } else {
-                    ForEach(projects) { project in
-                        Button {
-                            onSelectProject(project.id)
-                        } label: {
-                            if project.id == selectedProjectID {
-                                Label(project.name, systemImage: "checkmark")
-                            } else {
-                                Text(project.name)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "shippingbox")
-                    Text(title)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .foregroundStyle(.primary)
-                .padding(.leading, 12)
-                .padding(.trailing, 10)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .fixedSize()
-
-            Rectangle()
-                .fill(Color.primary.opacity(0.12))
-                .frame(width: 1, height: 16)
-                .padding(.vertical, 4)
-
-            Button(action: onCreateProject) {
-                Image(systemName: "plus")
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
-            .help("Create Project")
-        }
-    }
 }

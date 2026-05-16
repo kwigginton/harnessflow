@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import HarnessflowCore
 
@@ -58,7 +59,7 @@ private struct GeneralSettingsPage: View {
             Section("Provider") {
                 TextField("Codex executable path", text: $codexExecutablePath)
 
-                Text("Working directory is now controlled per project from the top toolbar. The legacy default directory remains only for migration/bootstrap behavior.")
+                Text("Working directories are managed as board rows from the top toolbar. The legacy default directory remains only for migration/bootstrap behavior.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -159,6 +160,7 @@ private struct OpenAISettingsPage: View {
     @EnvironmentObject private var store: AppStore
     @State private var apiToken = ""
     @State private var selectedStrategy: CodexAuthStrategy = .preferSubscriptionFallbackToAPI
+    @State private var didCopyLoginCommand = false
 
     var body: some View {
         Form {
@@ -202,9 +204,30 @@ private struct OpenAISettingsPage: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
-                    Text("CLI login is managed outside Harnessflow. Use `codex login` in Terminal to sign in with your ChatGPT subscription.")
+                    Text("CLI login is managed outside Harnessflow. Run the command below in Terminal to sign in with your ChatGPT subscription.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        Text(codexLoginCommand)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                        Button {
+                            copyCodexLoginCommand()
+                        } label: {
+                            Label("Copy Command", systemImage: "doc.on.doc")
+                        }
+
+                        if didCopyLoginCommand {
+                            Label("Copied", systemImage: "checkmark")
+                                .font(.footnote)
+                                .foregroundStyle(.green)
+                        }
+                    }
                 }
                 .padding(.top, 8)
 
@@ -300,6 +323,33 @@ private struct OpenAISettingsPage: View {
         case .unavailable, .unknown:
             .secondary
         }
+    }
+
+    private var codexLoginCommand: String {
+        let executablePath = store.settings.codexExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let executable = executablePath.isEmpty ? "codex" : shellEscaped(executablePath)
+        return "\(executable) login"
+    }
+
+    private func copyCodexLoginCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(codexLoginCommand, forType: .string)
+        didCopyLoginCommand = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            didCopyLoginCommand = false
+        }
+    }
+
+    private func shellEscaped(_ value: String) -> String {
+        let charactersRequiringQuotes = CharacterSet.whitespacesAndNewlines
+            .union(CharacterSet(charactersIn: #"'"`$\"#))
+
+        guard value.rangeOfCharacter(from: charactersRequiringQuotes) != nil else {
+            return value
+        }
+
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

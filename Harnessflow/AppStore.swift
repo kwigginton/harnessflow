@@ -41,6 +41,27 @@ final class AppStore: ObservableObject {
         }
     }
 
+    struct DirectoryBoardRow: Identifiable, Equatable {
+        let project: ProjectRecord
+        let tickets: [Ticket]
+
+        var id: UUID { project.id }
+    }
+
+    struct ArchivedDirectorySummary: Identifiable, Equatable {
+        let project: ProjectRecord
+        let totalCount: Int
+        let activeCount: Int
+        let doneCount: Int
+        let runningCount: Int
+        let researchCount: Int
+        let planCount: Int
+        let implementCount: Int
+        let reviewCount: Int
+
+        var id: UUID { project.id }
+    }
+
     private struct LivePhaseOutputKey: Hashable {
         let ticketID: UUID
         let phase: TicketPhase
@@ -48,6 +69,7 @@ final class AppStore: ObservableObject {
 
     @Published private(set) var projects: [ProjectRecord] = []
     @Published private(set) var tickets: [Ticket] = []
+    @Published private(set) var archivedDirectorySummaries: [ArchivedDirectorySummary] = []
     @Published private(set) var settings: AppSettings
     @Published private(set) var selectedProjectID: UUID?
     @Published var selectedTicketID: UUID?
@@ -56,6 +78,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var hasOpenAIAPIToken = false
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
     @Published private var livePhaseOutputs: [LivePhaseOutputKey: LivePhaseOutput] = [:]
+    private var ticketProjectIDs: [UUID: UUID] = [:]
 
     private let persistenceStore: PersistenceStore
     private let credentialsStore: OpenAICredentialsStore
@@ -88,6 +111,17 @@ final class AppStore: ObservableObject {
         selectedProject != nil
     }
 
+    var directoryBoardRows: [DirectoryBoardRow] {
+        projects.map { project in
+            DirectoryBoardRow(
+                project: project,
+                tickets: tickets
+                    .filter { ticketProjectIDs[$0.id] == project.id }
+                    .sorted { $0.updatedAt > $1.updatedAt }
+            )
+        }
+    }
+
     func ticket(withID id: UUID) -> Ticket? {
         tickets.first(where: { $0.id == id })
     }
@@ -118,12 +152,27 @@ final class AppStore: ObservableObject {
         do {
             settings = try persistenceStore.loadSettings()
             projects = try persistenceStore.loadProjects()
+            let archivedProjects = try persistenceStore.loadArchivedProjects()
             selectedProjectID = try persistenceStore.loadSelectedProjectID()
-            if let selectedProjectID {
-                tickets = try persistenceStore.loadTickets(projectID: selectedProjectID)
-            } else {
-                tickets = []
+
+            var loadedTickets: [Ticket] = []
+            var loadedTicketProjectIDs: [UUID: UUID] = [:]
+            for project in projects {
+                let projectTickets = try persistenceStore.loadTickets(projectID: project.id)
+                loadedTickets.append(contentsOf: projectTickets)
+                for ticket in projectTickets {
+                    loadedTicketProjectIDs[ticket.id] = project.id
+                }
             }
+            tickets = loadedTickets.sorted { $0.updatedAt > $1.updatedAt }
+            ticketProjectIDs = loadedTicketProjectIDs
+            archivedDirectorySummaries = try archivedProjects.map { project in
+                makeArchivedDirectorySummary(
+                    project: project,
+                    tickets: try persistenceStore.loadTickets(projectID: project.id)
+                )
+            }
+
             if let selectedTicketID, tickets.contains(where: { $0.id == selectedTicketID }) == false {
                 self.selectedTicketID = nil
             }
@@ -168,6 +217,7 @@ final class AppStore: ObservableObject {
     func createTicket(
         title: String,
         detailsText: String,
+        projectID: UUID,
         initialPhase: TicketPhase = .research,
         autoShiftOnSuccess: Bool = false
     ) {
@@ -177,8 +227,9 @@ final class AppStore: ObservableObject {
             errorMessage = "Ticket title cannot be empty."
             return
         }
-        guard let selectedProjectID else {
-            errorMessage = "Select a project before creating a ticket."
+
+        guard projects.contains(where: { $0.id == projectID }) else {
+            errorMessage = "Choose a working directory before creating a ticket."
             return
         }
 
@@ -186,7 +237,7 @@ final class AppStore: ObservableObject {
             let ticket = try persistenceStore.createTicket(
                 title: trimmedTitle,
                 detailsText: detailsText,
-                projectID: selectedProjectID,
+                projectID: projectID,
                 initialPhase: initialPhase,
                 autoShiftOnSuccess: autoShiftOnSuccess
             )
@@ -203,11 +254,11 @@ final class AppStore: ObservableObject {
         let trimmedDirectory = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard trimmedName.isEmpty == false else {
-            errorMessage = "Project name cannot be empty."
+            errorMessage = "Working directory name cannot be empty."
             return
         }
         guard trimmedDirectory.isEmpty == false else {
-            errorMessage = "Project working directory cannot be empty."
+            errorMessage = "Working directory path cannot be empty."
             return
         }
 
@@ -223,16 +274,54 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func removeDirectoryRow(projectID: UUID) {
+        errorMessage = nil
+
+        let projectTickets = tickets.filter { ticketProjectIDs[$0.id] == projectID }
+        let hasRunningPhase = projectTickets.contains { ticket in
+            ticket.phaseStates.contains { $0.executionState == .running }
+        }
+        guard hasRunningPhase == false else {
+            errorMessage = "Stop running phases before removing this working directory row."
+            return
+        }
+
+        do {
+            _ = try persistenceStore.archiveProject(projectID: projectID)
+            if let selectedTicketID, ticketProjectIDs[selectedTicketID] == projectID {
+                self.selectedTicketID = nil
+            }
+            if selectedProjectID == projectID {
+                try persistenceStore.saveSelectedProjectID(nil)
+            }
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func restoreDirectoryRow(projectID: UUID) {
+        errorMessage = nil
+
+        do {
+            let project = try persistenceStore.unarchiveProject(projectID: projectID)
+            try persistenceStore.saveSelectedProjectID(project.id)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func updateSelectedProjectDirectory(_ workingDirectory: String) {
         errorMessage = nil
         guard let selectedProjectID else {
-            errorMessage = "Select a project before choosing a directory."
+            errorMessage = "Select a working directory before choosing a folder."
             return
         }
 
         let trimmedDirectory = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedDirectory.isEmpty == false else {
-            errorMessage = "Project working directory cannot be empty."
+            errorMessage = "Working directory path cannot be empty."
             return
         }
 
@@ -261,18 +350,18 @@ final class AppStore: ObservableObject {
     }
 
     @discardableResult
-    func moveTicket(id: UUID, to phase: TicketPhase) -> Bool {
+    func moveTicket(id: UUID, to phase: TicketPhase, projectID: UUID) -> Bool {
         guard let ticket = tickets.first(where: { $0.id == id }) else {
             return false
         }
-        guard let selectedProjectID else {
-            errorMessage = "Select a project before moving tickets."
+        guard ticketProjectIDs[id] == projectID else {
+            errorMessage = "Tickets can only move within their working directory row."
             return false
         }
 
         do {
             let updated = try workflow.move(ticket, to: phase)
-            try persistenceStore.upsert(ticket: updated, projectID: selectedProjectID)
+            try persistenceStore.upsert(ticket: updated, projectID: projectID)
             reload()
             return true
         } catch {
@@ -282,18 +371,18 @@ final class AppStore: ObservableObject {
     }
 
     @discardableResult
-    func shiftTicketForward(id: UUID) -> Bool {
+    func shiftTicketForward(id: UUID, projectID: UUID) -> Bool {
         guard let ticket = tickets.first(where: { $0.id == id }) else {
             return false
         }
-        guard let selectedProjectID else {
-            errorMessage = "Select a project before moving tickets."
+        guard ticketProjectIDs[id] == projectID else {
+            errorMessage = "Tickets can only move within their working directory row."
             return false
         }
 
         do {
             let shifted = try shiftCompletedTicket(ticket)
-            try persistenceStore.upsert(ticket: shifted, projectID: selectedProjectID)
+            try persistenceStore.upsert(ticket: shifted, projectID: projectID)
             reload()
             return true
         } catch {
@@ -344,7 +433,7 @@ final class AppStore: ObservableObject {
     func runCurrentPhase(for ticketID: UUID) async {
         guard
             let ticket = tickets.first(where: { $0.id == ticketID }),
-            let project = selectedProject
+            let project = project(forTicketID: ticketID)
         else {
             return
         }
@@ -812,6 +901,34 @@ final class AppStore: ObservableObject {
             tickets[index] = updatedTicket
             tickets.sort { $0.updatedAt > $1.updatedAt }
         }
+    }
+
+    private func project(forTicketID ticketID: UUID) -> ProjectRecord? {
+        guard let projectID = ticketProjectIDs[ticketID] else {
+            return nil
+        }
+        return projects.first(where: { $0.id == projectID })
+    }
+
+    private func makeArchivedDirectorySummary(
+        project: ProjectRecord,
+        tickets: [Ticket]
+    ) -> ArchivedDirectorySummary {
+        let doneCount = tickets.filter(\.isDone).count
+        let activeTickets = tickets.filter { $0.isDone == false }
+        return ArchivedDirectorySummary(
+            project: project,
+            totalCount: tickets.count,
+            activeCount: activeTickets.count,
+            doneCount: doneCount,
+            runningCount: tickets.filter { ticket in
+                ticket.phaseStates.contains { $0.executionState == .running }
+            }.count,
+            researchCount: activeTickets.filter { $0.column == .research }.count,
+            planCount: activeTickets.filter { $0.column == .plan }.count,
+            implementCount: activeTickets.filter { $0.column == .implement }.count,
+            reviewCount: activeTickets.filter { $0.column == .review }.count
+        )
     }
 
     func performErrorRecoveryAction() {

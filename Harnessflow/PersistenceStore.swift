@@ -4,11 +4,14 @@ import HarnessflowCore
 
 enum PersistenceStoreError: LocalizedError {
     case missingProject(UUID)
+    case duplicateActiveProject(String)
 
     var errorDescription: String? {
         switch self {
         case let .missingProject(id):
             "Project not found: \(id.uuidString)"
+        case let .duplicateActiveProject(path):
+            "A working directory row already exists for \(path)."
         }
     }
 }
@@ -33,7 +36,19 @@ final class PersistenceStore {
         let descriptor = FetchDescriptor<ProjectEntity>(
             sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
-        return try context.fetch(descriptor).map { $0.toRecord() }
+        return try context.fetch(descriptor)
+            .filter { $0.isArchived == false }
+            .map { $0.toRecord() }
+    }
+
+    func loadArchivedProjects() throws -> [ProjectRecord] {
+        try bootstrapIfNeeded()
+        let descriptor = FetchDescriptor<ProjectEntity>(
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        return try context.fetch(descriptor)
+            .filter(\.isArchived)
+            .map { $0.toRecord() }
     }
 
     func loadTickets(projectID: UUID) throws -> [Ticket] {
@@ -64,14 +79,56 @@ final class PersistenceStore {
 
     func createProject(name: String, workingDirectory: String) throws -> ProjectRecord {
         try bootstrapIfNeeded()
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDirectory = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDirectory = normalizedPath(trimmedDirectory)
+
+        if let existing = try fetchProjectEntity(workingDirectory: normalizedDirectory) {
+            if existing.isArchived {
+                existing.update(
+                    name: trimmedName,
+                    workingDirectory: trimmedDirectory,
+                    isArchived: false
+                )
+                try context.save()
+                return existing.toRecord()
+            }
+
+            throw PersistenceStoreError.duplicateActiveProject(existing.workingDirectory)
+        }
+
         let now = Date()
         let entity = ProjectEntity(
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            workingDirectory: workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
+            name: trimmedName,
+            workingDirectory: trimmedDirectory,
             createdAt: now,
             updatedAt: now
         )
         context.insert(entity)
+        try context.save()
+        return entity.toRecord()
+    }
+
+    func archiveProject(projectID: UUID) throws -> ProjectRecord {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchProjectEntity(id: projectID) else {
+            throw PersistenceStoreError.missingProject(projectID)
+        }
+
+        entity.isArchived = true
+        entity.updatedAt = .now
+        try context.save()
+        return entity.toRecord()
+    }
+
+    func unarchiveProject(projectID: UUID) throws -> ProjectRecord {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchProjectEntity(id: projectID) else {
+            throw PersistenceStoreError.missingProject(projectID)
+        }
+
+        entity.isArchived = false
+        entity.updatedAt = .now
         try context.save()
         return entity.toRecord()
     }
@@ -189,6 +246,15 @@ final class PersistenceStore {
         return try context.fetch(descriptor).first
     }
 
+    private func fetchProjectEntity(workingDirectory normalizedWorkingDirectory: String) throws -> ProjectEntity? {
+        let descriptor = FetchDescriptor<ProjectEntity>(
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        return try context.fetch(descriptor).first { project in
+            normalizedPath(project.workingDirectory) == normalizedWorkingDirectory
+        }
+    }
+
     private func fetchTicketEntity(id: UUID) throws -> TicketEntity? {
         let descriptor = FetchDescriptor<TicketEntity>(
             predicate: #Predicate<TicketEntity> { $0.id == id }
@@ -245,11 +311,12 @@ final class PersistenceStore {
             didChange = true
         }
 
-        let projectIDs = Set(projects.map(\.id))
+        let activeProjects = projects.filter { $0.isArchived == false }
+        let projectIDs = Set(activeProjects.map(\.id))
         if let selectedProjectID = settingsEntity.selectedProjectID, projectIDs.contains(selectedProjectID) {
             // Keep the persisted selection.
         } else {
-            settingsEntity.selectedProjectID = projects.first?.id
+            settingsEntity.selectedProjectID = activeProjects.first?.id
             didChange = true
         }
 
@@ -284,5 +351,10 @@ final class PersistenceStore {
 
         let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
         return lastPathComponent.isEmpty ? "Default Project" : lastPathComponent
+    }
+
+    private func normalizedPath(_ path: String) -> String {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        return NSString(string: expandedPath).standardizingPath
     }
 }
