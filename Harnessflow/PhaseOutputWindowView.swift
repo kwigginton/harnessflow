@@ -41,7 +41,8 @@ struct PhaseOutputWindowView: View {
         let ticket = store.ticket(withID: ticketID)
         let liveOutput = store.liveOutput(for: ticketID, phase: phase)
         let persistedState = ticket?.phaseState(for: phase)
-        let outputText = displayText(liveOutput: liveOutput, persistedState: persistedState)
+        let outputText = visibleDisplayText(liveOutput: liveOutput, persistedState: persistedState)
+        let liveOutputRevision = liveOutput?.lastUpdatedAt
 
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
@@ -101,10 +102,10 @@ struct PhaseOutputWindowView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    Text(outputText.isEmpty ? "No output captured for this phase yet." : outputText)
-                        .font(.footnote.monospaced())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    outputTextView(
+                        outputText.isEmpty ? "No output captured for this phase yet." : outputText,
+                        isRunning: liveOutput?.isRunning == true
+                    )
 
                     Color.clear
                         .frame(height: 1)
@@ -115,11 +116,11 @@ struct PhaseOutputWindowView: View {
                 .onAppear {
                     scrollToBottom(using: proxy, animated: false)
                 }
-                .onChange(of: outputText) { _, _ in
+                .onChange(of: liveOutputRevision) { _, _ in
                     guard liveOutput?.isRunning == true else {
                         return
                     }
-                    scrollToBottom(using: proxy, animated: true)
+                    scrollToBottom(using: proxy, animated: false)
                 }
             }
         }
@@ -155,6 +156,31 @@ struct PhaseOutputWindowView: View {
         }
     }
 
+    private func visibleDisplayText(
+        liveOutput: AppStore.LivePhaseOutput?,
+        persistedState: TicketPhaseState?
+    ) -> String {
+        let text = displayText(liveOutput: liveOutput, persistedState: persistedState)
+        guard liveOutput?.isRunning == true else {
+            return text
+        }
+
+        return text.liveOutputTail(maxCharacters: 12_000)
+    }
+
+    @ViewBuilder
+    private func outputTextView(_ text: String, isRunning: Bool) -> some View {
+        let outputText = Text(text)
+            .font(.footnote.monospaced())
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+        if isRunning {
+            outputText
+        } else {
+            outputText.textSelection(.enabled)
+        }
+    }
+
     private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool) {
         if animated {
             withAnimation(.easeOut(duration: 0.15)) {
@@ -180,5 +206,16 @@ struct PhaseOutputWindowView: View {
             return "This phase has a recorded process PID \(ownedProcess.processIdentifier). Terminate will verify ownership before sending signals."
         }
         return ""
+    }
+}
+
+private extension String {
+    func liveOutputTail(maxCharacters: Int) -> String {
+        guard count > maxCharacters else {
+            return self
+        }
+
+        let startIndex = index(endIndex, offsetBy: -maxCharacters)
+        return "[Showing latest \(maxCharacters.formatted()) characters of live output]\n\n" + self[startIndex...]
     }
 }

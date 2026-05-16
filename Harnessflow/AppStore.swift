@@ -67,6 +67,15 @@ final class AppStore: ObservableObject {
         let phase: TicketPhase
     }
 
+    private struct PendingLiveOutput {
+        var standardOutput = ""
+        var standardError = ""
+        var combinedText = ""
+    }
+
+    private static let liveOutputFlushInterval: Duration = .milliseconds(125)
+    private static let liveOutputCharacterLimit = 80_000
+
     @Published private(set) var projects: [ProjectRecord] = []
     @Published private(set) var tickets: [Ticket] = []
     @Published private(set) var archivedDirectorySummaries: [ArchivedDirectorySummary] = []
@@ -78,6 +87,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var hasOpenAIAPIToken = false
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
     @Published private var livePhaseOutputs: [LivePhaseOutputKey: LivePhaseOutput] = [:]
+    private var pendingLiveOutputChunks: [LivePhaseOutputKey: PendingLiveOutput] = [:]
+    private var liveOutputFlushTasks: [LivePhaseOutputKey: Task<Void, Never>] = [:]
     private var ticketProjectIDs: [UUID: UUID] = [:]
 
     private let persistenceStore: PersistenceStore
@@ -739,7 +750,11 @@ final class AppStore: ObservableObject {
     }
 
     private func beginLiveOutput(for request: AgentRunRequest, startedAt: Date) {
-        livePhaseOutputs[liveOutputKey(for: request)] = LivePhaseOutput(
+        let key = liveOutputKey(for: request)
+        pendingLiveOutputChunks.removeValue(forKey: key)
+        liveOutputFlushTasks[key]?.cancel()
+        liveOutputFlushTasks.removeValue(forKey: key)
+        livePhaseOutputs[key] = LivePhaseOutput(
             ticketID: request.ticketID,
             phase: request.phase,
             startedAt: startedAt
@@ -760,25 +775,27 @@ final class AppStore: ObservableObject {
 
     private func appendLiveOutput(_ chunk: AgentOutputChunk, to request: AgentRunRequest) {
         let key = liveOutputKey(for: request)
-        guard var liveOutput = livePhaseOutputs[key] else {
+        guard livePhaseOutputs[key] != nil else {
             return
         }
 
+        var pending = pendingLiveOutputChunks[key] ?? PendingLiveOutput()
         switch chunk.channel {
         case .standardOutput:
-            liveOutput.standardOutput.append(chunk.text)
-            liveOutput.combinedText.append(chunk.text)
+            pending.standardOutput.append(chunk.text)
+            pending.combinedText.append(chunk.text)
         case .standardError:
-            liveOutput.standardError.append(chunk.text)
-            liveOutput.combinedText.append(formatStandardError(chunk.text))
+            pending.standardError.append(chunk.text)
+            pending.combinedText.append(formatStandardError(chunk.text))
         }
+        pendingLiveOutputChunks[key] = pending
 
-        liveOutput.lastUpdatedAt = .now
-        livePhaseOutputs[key] = liveOutput
+        scheduleLiveOutputFlush(for: key)
     }
 
     private func completeLiveOutput(for request: AgentRunRequest, result: AgentRunResult) {
         let key = liveOutputKey(for: request)
+        flushPendingLiveOutput(for: key)
         guard var liveOutput = livePhaseOutputs[key] else {
             return
         }
@@ -796,6 +813,7 @@ final class AppStore: ObservableObject {
 
     private func failLiveOutput(for request: AgentRunRequest, message: String) {
         let key = liveOutputKey(for: request)
+        flushPendingLiveOutput(for: key)
         guard var liveOutput = livePhaseOutputs[key] else {
             return
         }
@@ -815,11 +833,54 @@ final class AppStore: ObservableObject {
 
     private func resetLiveOutput(for request: AgentRunRequest) {
         let key = liveOutputKey(for: request)
+        pendingLiveOutputChunks.removeValue(forKey: key)
+        liveOutputFlushTasks[key]?.cancel()
+        liveOutputFlushTasks.removeValue(forKey: key)
         livePhaseOutputs[key] = LivePhaseOutput(
             ticketID: request.ticketID,
             phase: request.phase,
             startedAt: livePhaseOutputs[key]?.startedAt ?? .now
         )
+    }
+
+    private func scheduleLiveOutputFlush(for key: LivePhaseOutputKey) {
+        guard liveOutputFlushTasks[key] == nil else {
+            return
+        }
+
+        liveOutputFlushTasks[key] = Task { [weak self] in
+            try? await Task.sleep(for: Self.liveOutputFlushInterval)
+            self?.flushScheduledLiveOutput(for: key)
+        }
+    }
+
+    private func flushScheduledLiveOutput(for key: LivePhaseOutputKey) {
+        liveOutputFlushTasks.removeValue(forKey: key)
+        flushPendingLiveOutput(for: key)
+    }
+
+    private func flushPendingLiveOutput(for key: LivePhaseOutputKey) {
+        guard
+            let pending = pendingLiveOutputChunks.removeValue(forKey: key),
+            var liveOutput = livePhaseOutputs[key]
+        else {
+            return
+        }
+
+        liveOutput.standardOutput.append(pending.standardOutput)
+        liveOutput.standardOutput = liveOutput.standardOutput.trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
+        )
+        liveOutput.standardError.append(pending.standardError)
+        liveOutput.standardError = liveOutput.standardError.trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
+        )
+        liveOutput.combinedText.append(pending.combinedText)
+        liveOutput.combinedText = liveOutput.combinedText.trimmingLeadingCharacters(
+            overLimit: Self.liveOutputCharacterLimit
+        )
+        liveOutput.lastUpdatedAt = .now
+        livePhaseOutputs[key] = liveOutput
     }
 
     private func liveOutputKey(for request: AgentRunRequest) -> LivePhaseOutputKey {
@@ -1053,5 +1114,16 @@ private enum OpenAICredentialsStoreError: LocalizedError {
             }
             return fallback
         }
+    }
+}
+
+private extension String {
+    func trimmingLeadingCharacters(overLimit limit: Int) -> String {
+        guard count > limit else {
+            return self
+        }
+
+        let startIndex = index(endIndex, offsetBy: -limit)
+        return String(self[startIndex...])
     }
 }
