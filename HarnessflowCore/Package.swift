@@ -15,9 +15,7 @@ let package = Package(
     targets: [
         .target(
             name: "HarnessflowCore",
-            resources: [
-                .process("Resources"),
-            ]
+            exclude: ["Resources"]
         ),
         .testTarget(
             name: "HarnessflowCoreTests",

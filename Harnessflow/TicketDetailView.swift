@@ -293,7 +293,7 @@ struct TicketDetailView: View {
                                                     .foregroundStyle(.secondary)
                                             }
 
-                                            Text("Model: \(run.model)")
+                                            Text("Provider: \(run.providerKind.title) | Auth: \(run.authMethodDescription) | Model: \(run.model)")
                                                 .font(.footnote)
                                                 .foregroundStyle(.secondary)
 

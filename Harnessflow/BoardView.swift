@@ -384,19 +384,28 @@ private struct TicketCardView: View, @preconcurrency Equatable {
                 onSelect()
             } label: {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(ticket.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if ticket.detailsPreview.isEmpty == false {
-                        Text(ticket.detailsPreview)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(ticket.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if ticket.detailsPreview.isEmpty == false {
+                            Text(ticket.detailsPreview)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        TapGesture(count: 2)
+                            .onEnded {
+                                onOpenDetail()
+                            }
+                    )
 
                     HStack {
                         Text(statusTitle)
@@ -448,12 +457,6 @@ private struct TicketCardView: View, @preconcurrency Equatable {
                 )
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(
-                TapGesture(count: 2)
-                    .onEnded {
-                        onOpenDetail()
-                    }
-            )
         }
         .draggable(ticket.id.uuidString)
     }

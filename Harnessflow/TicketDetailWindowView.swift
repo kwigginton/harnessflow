@@ -10,6 +10,7 @@ struct TicketDetailWindowView: View {
 
     let route: TicketDetailWindowRoute?
     @State private var selectedOutputPhase: TicketPhase = .research
+    @State private var isOutputPhaseUserSelected = false
 
     var body: some View {
         Group {
@@ -43,7 +44,7 @@ struct TicketDetailWindowView: View {
 
                     Spacer()
 
-                    Picker("Phase", selection: $selectedOutputPhase) {
+                    Picker("Phase", selection: outputPhaseSelection) {
                         ForEach(TicketPhase.allCases) { phase in
                             Text(phase.title).tag(phase)
                         }
@@ -71,7 +72,26 @@ struct TicketDetailWindowView: View {
             selectedOutputPhase = ticket.column
         }
         .onChange(of: ticket.id) { _, _ in
+            isOutputPhaseUserSelected = false
             selectedOutputPhase = ticket.column
         }
+        .onChange(of: ticket.column) { _, newColumn in
+            guard isOutputPhaseUserSelected == false else {
+                return
+            }
+            selectedOutputPhase = newColumn
+        }
+    }
+
+    private var outputPhaseSelection: Binding<TicketPhase> {
+        Binding(
+            get: {
+                selectedOutputPhase
+            },
+            set: { newValue in
+                isOutputPhaseUserSelected = true
+                selectedOutputPhase = newValue
+            }
+        )
     }
 }

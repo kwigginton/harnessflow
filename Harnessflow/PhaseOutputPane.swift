@@ -134,7 +134,7 @@ struct PhaseOutputPane: View {
         case (false, true):
             return stdout
         case (true, false):
-            return stderr
+            return "[stderr]\n" + stderr
         case (false, false):
             return stdout + (stdout.hasSuffix("\n") ? "" : "\n") + "\n[stderr]\n" + stderr
         case (true, true):
