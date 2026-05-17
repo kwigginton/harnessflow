@@ -121,6 +121,58 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func researchAndPlanRequestsForbidVerificationCommandsByDefault() throws {
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(
+                research: "codex-research",
+                plan: "codex-plan"
+            ),
+            phasePrompts: PhasePromptSelection(
+                research: "Research base prompt",
+                plan: "Plan base prompt"
+            )
+        )
+
+        for phase in [TicketPhase.research, .plan] {
+            let ticket = Ticket(title: "Avoid slow checks", column: phase)
+            let request = try TicketExecutionService().makeRequest(for: ticket, settings: settings)
+
+            #expect(request.prompt.contains("Phase Execution Policy"))
+            #expect(request.prompt.contains("Do not run builds, tests"))
+            #expect(request.prompt.contains("unless the user explicitly asks"))
+        }
+    }
+
+    @Test
+    func implementAndReviewRequestsPreferFocusedVerification() throws {
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(
+                implement: "codex-implement",
+                review: "codex-review"
+            ),
+            phasePrompts: PhasePromptSelection(
+                implement: "Implement base prompt",
+                review: "Review base prompt"
+            )
+        )
+
+        let implementRequest = try TicketExecutionService().makeRequest(
+            for: Ticket(title: "Implement narrowly", column: .implement),
+            settings: settings
+        )
+        let reviewRequest = try TicketExecutionService().makeRequest(
+            for: Ticket(title: "Review narrowly", column: .review),
+            settings: settings
+        )
+
+        #expect(implementRequest.prompt.contains("Run only the focused builds, tests, or checks"))
+        #expect(reviewRequest.prompt.contains("Start with code and diff inspection"))
+        #expect(reviewRequest.prompt.contains("avoid repeating successful verification"))
+    }
+
+    @Test
     func reviewRequestSwitchesToFinalAdjustmentPassWhenPreviousReviewRequiresIt() throws {
         var ticket = Ticket(title: "Final pass", column: .review)
         var reviewState = ticket.phaseState(for: .review)

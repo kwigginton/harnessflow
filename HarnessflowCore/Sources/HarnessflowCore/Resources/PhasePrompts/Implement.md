@@ -10,5 +10,6 @@ Produce a markdown deliverable that:
 - Calls out remaining limitations, follow-ups, or risks the reviewer should inspect.
 
 Be concrete and factual. Reflect the implemented state, not the intended state.
+Run only the focused builds, tests, or checks needed to validate the implementation, and prefer package or module-level checks over full app builds when they cover the change.
 
 Follow the shared output contract exactly.

@@ -10,5 +10,6 @@ Produce a markdown deliverable that:
 - Recommends the most likely implementation direction for the plan phase.
 
 Prefer repository-grounded evidence over speculation. Keep the result concise but information-dense.
+Do not run builds, tests, formatters, linters, package resolution, or other verification commands unless the user explicitly asks for them.
 
 Follow the shared output contract exactly.

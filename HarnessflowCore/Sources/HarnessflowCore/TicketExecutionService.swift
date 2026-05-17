@@ -292,12 +292,38 @@ public struct TicketExecutionService: Sendable {
             sections.append(continuation)
         }
 
+        sections.append(executionPolicy(for: phase))
         sections.append(AgentQuestionContract.instructions)
         if phase == .review {
             sections.append(ReviewFinalPassContract.instructions)
         }
         sections.append(PhaseDeliverableContract.instructions)
         return sections.joined(separator: "\n\n")
+    }
+
+    private func executionPolicy(for phase: TicketPhase) -> String {
+        switch phase {
+        case .research:
+            return """
+            Phase Execution Policy
+            Do not run builds, tests, formatters, linters, package resolution, or other verification commands during Research unless the user explicitly asks for them. Prefer fast read-only inspection with targeted file searches and source reads.
+            """
+        case .plan:
+            return """
+            Phase Execution Policy
+            Do not run builds, tests, formatters, linters, package resolution, or other verification commands during Plan unless the user explicitly asks for them. Specify the verification strategy for Implement or Review instead of executing it now.
+            """
+        case .implement:
+            return """
+            Phase Execution Policy
+            Run only the focused builds, tests, or checks needed to validate the implementation. Prefer package or module-level checks over full app builds when they cover the change, and record exactly what was run.
+            """
+        case .review:
+            return """
+            Phase Execution Policy
+            Start with code and diff inspection. Run focused builds, tests, or checks only when they materially reduce review risk, and avoid repeating successful verification already captured by Implement unless the change or risk justifies it.
+            """
+        }
     }
 
     private func finalAdjustmentContext(for ticket: Ticket, phase: TicketPhase) -> String? {

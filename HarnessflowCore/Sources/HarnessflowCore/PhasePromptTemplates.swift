@@ -120,6 +120,8 @@ public enum PhasePromptTemplateLoader {
     - Evidence and observations from the repository
     - Recommended direction for the plan phase
 
+    Do not run builds, tests, formatters, linters, package resolution, or other verification commands unless the user explicitly asks for them.
+
     Follow the shared output contract exactly.
     """
 
@@ -134,6 +136,8 @@ public enum PhasePromptTemplateLoader {
     - Public interface or data model changes
     - Test and verification scenarios
     - Assumptions and unresolved risks
+
+    Do not run builds, tests, formatters, linters, package resolution, or other verification commands unless the user explicitly asks for them.
 
     Follow the shared output contract exactly.
     """
@@ -150,6 +154,8 @@ public enum PhasePromptTemplateLoader {
     - Tests or checks run
     - Known gaps or follow-up items
 
+    Run only the focused builds, tests, or checks needed to validate the implementation, and prefer package or module-level checks over full app builds when they cover the change.
+
     Follow the shared output contract exactly.
     """
 
@@ -164,6 +170,8 @@ public enum PhasePromptTemplateLoader {
     - Residual risks or test gaps
     - Final pass decision using the required review exit check
     - Final recommendation
+
+    Start with code and diff inspection. Run focused builds, tests, or checks only when they materially reduce review risk, and avoid repeating successful verification already captured by Implement unless justified.
 
     Follow the shared output contract exactly.
     """

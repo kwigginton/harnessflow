@@ -11,5 +11,6 @@ Produce a markdown deliverable that:
 - Records assumptions and explicit defaults where decisions were made.
 
 Optimize for clarity and implementation safety, not verbosity.
+Do not run builds, tests, formatters, linters, package resolution, or other verification commands unless the user explicitly asks for them.
 
 Follow the shared output contract exactly.

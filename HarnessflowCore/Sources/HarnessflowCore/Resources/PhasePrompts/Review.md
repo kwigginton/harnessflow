@@ -10,5 +10,6 @@ Produce a markdown deliverable that:
 - States whether the ticket is ready to consider complete or needs rework.
 
 Prefer concrete evidence and actionable conclusions over general commentary.
+Start with code and diff inspection. Run focused builds, tests, or checks only when they materially reduce review risk, and avoid repeating successful verification already captured by Implement unless justified.
 
 Follow the shared output contract exactly.

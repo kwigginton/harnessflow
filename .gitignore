@@ -1,5 +1,6 @@
 .DS_Store
 .build/
+build/
 .derivedData/
 DerivedData/
 *.xcuserstate
@@ -10,3 +11,4 @@ DerivedData/
 *.swp
 *.tmp
 HarnessflowCore/.build/
+HarnessflowCore/build/
