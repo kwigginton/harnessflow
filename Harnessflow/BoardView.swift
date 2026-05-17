@@ -105,6 +105,21 @@ struct BoardView: View {
 }
 
 private struct DirectoryBoardRowView: View {
+    private enum BackdropStatus {
+        case awaitingInput
+        case finalAdjustments
+        case runningChanges
+
+        var color: Color {
+            switch self {
+            case .awaitingInput:
+                .blue
+            case .finalAdjustments, .runningChanges:
+                .orange
+            }
+        }
+    }
+
     let row: AppStore.DirectoryBoardRow
     let columns: [BoardColumn]
     let availableWidth: CGFloat
@@ -119,6 +134,35 @@ private struct DirectoryBoardRowView: View {
 
         let lastPathComponent = URL(fileURLWithPath: row.project.workingDirectory).lastPathComponent
         return lastPathComponent.isEmpty ? "Working Directory" : lastPathComponent
+    }
+
+    private var backdropStatus: BackdropStatus? {
+        let tickets = TicketPhase.allCases.flatMap { row.tickets(for: $0) } + row.doneTickets
+
+        if tickets.contains(where: { $0.currentExecutionState == .awaitingInput }) {
+            return .awaitingInput
+        }
+
+        if tickets.contains(where: { $0.needsFinalAdjustments && $0.currentExecutionState == .completed }) {
+            return .finalAdjustments
+        }
+
+        if tickets.contains(where: { ticket in
+            ticket.currentExecutionState == .running
+                && (ticket.column == .implement || ticket.needsFinalAdjustments)
+        }) {
+            return .runningChanges
+        }
+
+        return nil
+    }
+
+    private var backdropFill: Color {
+        backdropStatus?.color.opacity(0.08) ?? Color(nsColor: .underPageBackgroundColor)
+    }
+
+    private var backdropStroke: Color {
+        backdropStatus?.color.opacity(0.22) ?? Color.primary.opacity(0.08)
     }
 
     var body: some View {
@@ -177,11 +221,11 @@ private struct DirectoryBoardRowView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .underPageBackgroundColor))
+                .fill(backdropFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                .strokeBorder(backdropStroke, lineWidth: 1)
         )
     }
 
