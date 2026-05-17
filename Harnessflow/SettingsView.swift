@@ -5,6 +5,7 @@ import HarnessflowCore
 private enum SettingsPage: Hashable {
     case general
     case openAI
+    case anthropic
     case linear
 }
 
@@ -23,6 +24,9 @@ struct SettingsView: View {
                     Label("OpenAI", systemImage: "key.horizontal")
                         .tag(SettingsPage.openAI)
 
+                    Label("Anthropic", systemImage: "sparkles")
+                        .tag(SettingsPage.anthropic)
+
                     Label("Linear", systemImage: "link")
                         .tag(SettingsPage.linear)
                 }
@@ -35,6 +39,8 @@ struct SettingsView: View {
                     GeneralSettingsPage()
                 case .openAI:
                     OpenAISettingsPage()
+                case .anthropic:
+                    AnthropicSettingsPage()
                 case .linear:
                     LinearSettingsPage()
                 }
@@ -47,7 +53,9 @@ struct SettingsView: View {
 
 private struct GeneralSettingsPage: View {
     @EnvironmentObject private var store: AppStore
+    @State private var selectedProviderKind: AgentProviderKind = .codex
     @State private var codexExecutablePath = ""
+    @State private var claudeExecutablePath = ""
     @State private var researchModel = ""
     @State private var planModel = ""
     @State private var implementModel = ""
@@ -63,7 +71,16 @@ private struct GeneralSettingsPage: View {
     var body: some View {
         Form {
             Section("Provider") {
+                Picker("Active provider", selection: $selectedProviderKind) {
+                    ForEach(AgentProviderKind.allCases) { providerKind in
+                        Text(providerKind.title)
+                            .tag(providerKind)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 TextField("Codex executable path", text: $codexExecutablePath)
+                TextField("Claude executable path", text: $claudeExecutablePath)
 
                 Text("Working directories are managed as board rows from the top toolbar. The legacy default directory remains only for migration/bootstrap behavior.")
                     .font(.footnote)
@@ -101,7 +118,9 @@ private struct GeneralSettingsPage: View {
                     Spacer()
                     Button("Save Settings") {
                         store.saveSettings(
+                            selectedProviderKind: selectedProviderKind,
                             codexExecutablePath: codexExecutablePath,
+                            claudeExecutablePath: claudeExecutablePath,
                             defaultWorkingDirectory: store.settings.defaultWorkingDirectory,
                             codexAuthStrategy: store.settings.codexAuthStrategy,
                             researchModel: researchModel,
@@ -130,7 +149,9 @@ private struct GeneralSettingsPage: View {
     }
 
     private func loadFromStore() {
+        selectedProviderKind = store.settings.selectedProviderKind
         codexExecutablePath = store.settings.codexExecutablePath
+        claudeExecutablePath = store.settings.claudeExecutablePath
         researchModel = store.settings.phaseModels.research
         planModel = store.settings.phaseModels.plan
         implementModel = store.settings.phaseModels.implement
@@ -274,7 +295,9 @@ private struct OpenAISettingsPage: View {
 
                     Button("Save Provider Settings") {
                         store.saveSettings(
+                            selectedProviderKind: store.settings.selectedProviderKind,
                             codexExecutablePath: store.settings.codexExecutablePath,
+                            claudeExecutablePath: store.settings.claudeExecutablePath,
                             defaultWorkingDirectory: store.settings.defaultWorkingDirectory,
                             codexAuthStrategy: selectedStrategy,
                             researchModel: store.settings.phaseModels.research,
@@ -356,6 +379,61 @@ private struct OpenAISettingsPage: View {
         }
 
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private struct AnthropicSettingsPage: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var apiToken = ""
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Claude Authentication")
+                        .font(.title3.weight(.semibold))
+
+                    Text("Harnessflow passes this token to Claude as `ANTHROPIC_API_KEY` when it is saved.")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+
+                SecureField("sk-ant-...", text: $apiToken)
+                    .textFieldStyle(.roundedBorder)
+
+                Label(
+                    store.hasAnthropicAPIToken ? "Token saved in Keychain." : "No token saved.",
+                    systemImage: store.hasAnthropicAPIToken ? "checkmark.circle.fill" : "exclamationmark.circle"
+                )
+                .foregroundStyle(store.hasAnthropicAPIToken ? .green : .secondary)
+
+                Text("The token is stored in the macOS Keychain, not in the Harnessflow database.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    Button("Remove Token", role: .destructive) {
+                        apiToken = ""
+                        store.deleteAnthropicAPIToken()
+                    }
+                    .disabled(store.hasAnthropicAPIToken == false && apiToken.isEmpty)
+
+                    Spacer()
+
+                    Button("Save API Key") {
+                        store.saveAnthropicAPIToken(apiToken)
+                        apiToken = store.loadAnthropicAPIToken()
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(20)
+        .onAppear {
+            apiToken = store.loadAnthropicAPIToken()
+        }
     }
 }
 

@@ -84,8 +84,10 @@ public struct OwnedProcessReference: Codable, Equatable, Sendable {
 public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var phase: TicketPhase
+    public var providerKind: AgentProviderKind
     public var model: String
     public var authMethod: CodexAuthMethod
+    public var authMethodDescription: String
     public var didFallbackFromSubscription: Bool
     public var prompt: String
     public var output: String
@@ -97,8 +99,10 @@ public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
     public init(
         id: UUID = UUID(),
         phase: TicketPhase,
+        providerKind: AgentProviderKind = .codex,
         model: String,
         authMethod: CodexAuthMethod = .unknown,
+        authMethodDescription: String? = nil,
         didFallbackFromSubscription: Bool = false,
         prompt: String,
         output: String,
@@ -109,8 +113,10 @@ public struct PhaseRun: Identifiable, Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.phase = phase
+        self.providerKind = providerKind
         self.model = model
         self.authMethod = authMethod
+        self.authMethodDescription = authMethodDescription ?? authMethod.title
         self.didFallbackFromSubscription = didFallbackFromSubscription
         self.prompt = prompt
         self.output = output

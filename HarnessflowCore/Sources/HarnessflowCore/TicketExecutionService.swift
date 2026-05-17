@@ -124,6 +124,26 @@ public struct TicketExecutionService: Sendable {
         authMethod: CodexAuthMethod,
         didFallbackFromSubscription: Bool
     ) -> Ticket {
+        applyResult(
+            ticket: ticket,
+            request: request,
+            result: result,
+            providerKind: .codex,
+            authMethod: authMethod,
+            authMethodDescription: authMethod.title,
+            didFallbackFromSubscription: didFallbackFromSubscription
+        )
+    }
+
+    public func applyResult(
+        ticket: Ticket,
+        request: AgentRunRequest,
+        result: AgentRunResult,
+        providerKind: AgentProviderKind,
+        authMethod: CodexAuthMethod = .unknown,
+        authMethodDescription: String,
+        didFallbackFromSubscription: Bool = false
+    ) -> Ticket {
         var updated = ticket
         var phaseState = updated.phaseState(for: request.phase)
         let questionSet = result.success ? AgentQuestionContract.extractQuestionSet(from: result.output) : nil
@@ -162,8 +182,10 @@ public struct TicketExecutionService: Sendable {
             PhaseRun(
                 id: runID,
                 phase: request.phase,
+                providerKind: providerKind,
                 model: request.model,
                 authMethod: authMethod,
+                authMethodDescription: authMethodDescription,
                 didFallbackFromSubscription: didFallbackFromSubscription,
                 prompt: request.prompt,
                 output: result.output,
@@ -202,6 +224,28 @@ public struct TicketExecutionService: Sendable {
         didFallbackFromSubscription: Bool,
         failedAt: Date = .now
     ) -> Ticket {
+        applyFailure(
+            ticket: ticket,
+            request: request,
+            errorMessage: errorMessage,
+            providerKind: .codex,
+            authMethod: authMethod,
+            authMethodDescription: authMethod.title,
+            didFallbackFromSubscription: didFallbackFromSubscription,
+            failedAt: failedAt
+        )
+    }
+
+    public func applyFailure(
+        ticket: Ticket,
+        request: AgentRunRequest,
+        errorMessage: String,
+        providerKind: AgentProviderKind,
+        authMethod: CodexAuthMethod = .unknown,
+        authMethodDescription: String,
+        didFallbackFromSubscription: Bool = false,
+        failedAt: Date = .now
+    ) -> Ticket {
         var updated = ticket
         var phaseState = updated.phaseState(for: request.phase)
         let startedAt = phaseState.lastStartedAt ?? failedAt
@@ -216,8 +260,10 @@ public struct TicketExecutionService: Sendable {
         phaseState.runs.append(
             PhaseRun(
                 phase: request.phase,
+                providerKind: providerKind,
                 model: request.model,
                 authMethod: authMethod,
+                authMethodDescription: authMethodDescription,
                 didFallbackFromSubscription: didFallbackFromSubscription,
                 prompt: request.prompt,
                 output: "",

@@ -9,7 +9,7 @@ Harnessflow is a native macOS app for managing AI/agent tickets through a linear
 - Phase-specific prompt editing and execution
 - Local persistence with SwiftData backed by SQLite
 - Configurable per-phase model selection
-- Provider abstraction with an initial Codex CLI implementation
+- Provider abstraction with Codex CLI and Claude CLI implementations
 
 ## Project Layout
 
@@ -31,9 +31,9 @@ Build the macOS app target:
 xcodebuild -project Harnessflow.xcodeproj -target Harnessflow -configuration Debug build
 ```
 
-## Notes
+## Provider Setup
 
-- The Codex provider runs the local `codex` CLI non-interactively.
-- The default working directory and per-phase models are configurable in Settings.
+- Codex runs the local `codex` CLI non-interactively and can use either the Codex CLI ChatGPT login or an OpenAI API key from Keychain.
+- Claude runs the local `claude` CLI non-interactively with `claude -p`; when saved, Harnessflow passes the Anthropic key as `ANTHROPIC_API_KEY`.
+- The active provider, executable paths, default working directory, and per-phase models are configurable in Settings.
 - Review completion is terminal for the v1 board.
-

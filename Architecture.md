@@ -20,21 +20,21 @@ The workflow is intentionally constrained. It is not a general-purpose kanban sy
 - Workflow rules (`TicketWorkflow`) for adjacent-only movement, forward gating, and rework reset semantics.
 - Execution lifecycle (`TicketExecutionService`) including prompt assembly and result application.
 - Deliverable marker contract (`PhaseDeliverableContract`) and bundled phase prompt templates.
-- Provider protocol boundary (`AgentProvider`) and Codex CLI implementation (`CodexCLIProvider`).
-- Authentication strategy and fallback policy (`CodexAuthResolver`, login status parsing).
+- Provider protocol boundary (`AgentProvider`) and CLI implementations (`CodexCLIProvider`, `ClaudeCLIProvider`).
+- Codex authentication strategy and fallback policy (`CodexAuthResolver`, login status parsing).
 
 ### App target responsibilities (`Harnessflow/`)
 - SwiftData schema/versioning and domain mapping (`PersistenceModels`, `PersistenceStore`).
 - App orchestration (`AppStore`) for loading state, executing phases, handling retries/fallbacks, and persisting outcomes.
 - Process ownership inspection and termination (`OwnedProcessSupervisor`).
 - UI composition (`ContentView`, `BoardView`, `TicketDetailView`, `PhaseOutputWindowView`, `SettingsView`, `HarnessflowApp`).
-- Secret storage for OpenAI API key via Keychain (`OpenAICredentialsStore` in app layer).
+- Secret storage for OpenAI and Anthropic API keys via Keychain.
 
 ## Core Domain Model
 - `TicketPhase` is a fixed enum with four phases: research, plan, implement, review.
 - `Ticket` stores current column, completion metadata, and per-phase state snapshots.
 - `TicketPhaseState` stores prompt addendum, execution state, captured output/error, deliverable markdown, owned process reference, and run history.
-- `PhaseRun` stores immutable execution records (model, auth method, prompt, outputs, timestamps, success).
+- `PhaseRun` stores immutable execution records (provider, model, auth method, prompt, outputs, timestamps, success).
 - `OwnedProcessReference` stores PID, executable path, and launch time for detached-process ownership checks.
 
 ## Workflow Semantics
@@ -54,9 +54,9 @@ Review is terminal in v1 board behavior.
    - phase-specific addendum,
    - prior completed phase deliverables,
    - shared output contract markers.
-3. `AppStore` resolves auth method using `CodexAuthResolver` (subscription/API strategy + login status + API key availability + model constraints).
+3. `AppStore` resolves the selected provider. Codex uses `CodexAuthResolver` (subscription/API strategy + login status + API key availability + model constraints); Claude uses the configured Claude CLI with optional Anthropic API key injection.
 4. `AppStore` marks phase as running, persists it, and starts live output capture.
-5. `CodexCLIProvider` runs `codex exec` in the selected project working directory.
+5. The selected CLI provider runs non-interactively in the selected project working directory.
 6. On completion, `TicketExecutionService`:
    - extracts deliverable markdown between required markers,
    - treats missing markers as failure even if process exit code is 0,
@@ -68,24 +68,25 @@ Key distinction: raw run output is always captured, but only marker-wrapped deli
 
 ## Provider And Auth Model
 - Provider boundary: `AgentProvider` protocol.
-- Current implementation: `CodexCLIProvider` only.
-- Current invocation shape includes model selection, working-directory override, stdin prompt piping, and non-interactive CLI execution.
-- Auth strategies:
+- Current implementations: `CodexCLIProvider` and `ClaudeCLIProvider`.
+- Invocation shape includes model selection, working-directory selection, stdin prompt piping, and non-interactive CLI execution.
+- Codex auth strategies:
   - prefer subscription, fallback to API on rate-limit-like failures,
   - subscription only,
   - API key only.
-- API key is stored in Keychain, not SwiftData.
-- Subscription/API resolution is model-aware (some models require API key).
+- OpenAI and Anthropic API keys are stored in Keychain, not SwiftData.
+- Codex subscription/API resolution is model-aware (some models require API key).
+- Claude receives `ANTHROPIC_API_KEY` when an Anthropic token is saved; otherwise it relies on the local Claude CLI session/configuration.
 
 ## Persistence Architecture
-- SwiftData schema is versioned (`HarnessflowSchemaV1` -> `V4`) with migration stages.
+- SwiftData schema is versioned (`HarnessflowSchemaV1` -> `V8`) with migration stages.
 - Persisted state includes:
   - projects and selected project,
   - tickets and per-phase state,
   - phase run history,
   - deliverables and run linkage,
   - owned process references,
-  - settings (models, prompts, auth strategy, executable path, default directory).
+  - settings (selected provider, models, prompts, auth strategy, executable paths, default directory).
 - `PersistenceStore.bootstrapIfNeeded` performs startup normalization and migration-safe defaults:
   - creates a default project when missing,
   - associates orphan tickets,
@@ -107,7 +108,7 @@ Project working directory is execution-scoped: runs use the selected project's d
 - Board surface shows fixed phase columns and supports movement rules (`BoardView`).
 - Detail surface edits prompts and executes phases (`TicketDetailView`).
 - A separate output window shows streaming/persisted logs (`PhaseOutputWindowView`).
-- Settings manages executable path, working directories, auth strategy, per-phase models, and per-phase prompts (`SettingsView`).
+- Settings manages provider selection, executable paths, working directories, auth strategy, API keys, per-phase models, and per-phase prompts (`SettingsView`).
 
 Views are intentionally thin; orchestration and domain mutation live in `AppStore` and core services.
 
@@ -121,7 +122,7 @@ Current gap: app-target persistence/orchestration/runtime recovery has limited d
 
 ## Current Limitations And Near-Term Evolution
 - macOS-only target.
-- Single implemented provider (`CodexCLIProvider`).
+- Provider-specific model defaults are shared today; per-provider phase model presets may be useful later.
 - Fixed four-phase linear workflow by design.
 - Process supervision and recovery are local-session/system-process based.
 - Architecture doc should be updated when provider behavior, auth policy, or schema versions change to avoid documentation drift.

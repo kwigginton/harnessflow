@@ -38,6 +38,38 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func claudeProviderInvocationUsesPrintModeWorkingDirectoryAndEnvironmentOverrides() {
+        let provider = ClaudeCLIProvider(
+            executablePath: "/opt/homebrew/bin/claude",
+            environmentOverrides: ["ANTHROPIC_API_KEY": "sk-ant-test"]
+        )
+        let request = AgentRunRequest(
+            ticketID: UUID(),
+            phase: .implement,
+            prompt: "Implement prompt",
+            model: "claude-sonnet-4-5",
+            workingDirectory: "/tmp/project"
+        )
+
+        let invocation = provider.makeInvocation(
+            for: request,
+            baseEnvironment: [
+                "PATH": "/usr/bin",
+                "ANTHROPIC_API_KEY": "stale-token",
+            ]
+        )
+
+        #expect(invocation.arguments == [
+            "-p",
+            "--model", "claude-sonnet-4-5",
+            "--permission-mode", "bypassPermissions",
+        ])
+        #expect(invocation.currentDirectory == "/tmp/project")
+        #expect(invocation.environment["PATH"] == "/usr/bin")
+        #expect(invocation.environment["ANTHROPIC_API_KEY"] == "sk-ant-test")
+    }
+
+    @Test
     func requestUsesPhaseModelBasePromptAndPriorDeliverables() throws {
         var ticket = Ticket(title: "Execution", detailsText: "Update persistence flow", column: .plan)
         var researchState = ticket.phaseState(for: .research)
@@ -472,5 +504,39 @@ struct TicketExecutionServiceTests {
 
         #expect(updated.phaseState(for: .review).runs.last?.authMethod == .apiKey)
         #expect(updated.phaseState(for: .review).runs.last?.didFallbackFromSubscription == true)
+    }
+
+    @Test
+    func applyResultPersistsClaudeProviderMetadata() {
+        let ticket = Ticket(title: "Claude run", column: .implement)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .implement,
+            prompt: "Implement",
+            model: "claude-sonnet-4-5",
+            workingDirectory: "/tmp"
+        )
+        let result = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Done
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let updated = TicketExecutionService().applyResult(
+            ticket: ticket,
+            request: request,
+            result: result,
+            providerKind: .claude,
+            authMethodDescription: "Anthropic API Key"
+        )
+
+        #expect(updated.phaseState(for: .implement).runs.last?.providerKind == .claude)
+        #expect(updated.phaseState(for: .implement).runs.last?.authMethodDescription == "Anthropic API Key")
     }
 }

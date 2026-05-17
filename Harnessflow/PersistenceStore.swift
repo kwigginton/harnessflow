@@ -326,6 +326,9 @@ final class PersistenceStore {
         if settingsEntity.normalizeAuthStrategy() {
             didChange = true
         }
+        if settingsEntity.normalizeProviderSelection() {
+            didChange = true
+        }
         if settingsEntity.migrateLegacyCodexModelDefaultsIfNeeded() {
             didChange = true
         }

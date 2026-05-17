@@ -85,6 +85,7 @@ final class AppStore: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var errorRecoveryAction: ErrorRecoveryAction?
     @Published private(set) var hasOpenAIAPIToken = false
+    @Published private(set) var hasAnthropicAPIToken = false
     @Published private(set) var hasLinearAPIToken = false
     @Published private(set) var linearValidationMessage = "Linear token has not been checked yet."
     @Published private(set) var codexLoginStatus: CodexLoginStatus = .unknown("Codex login status has not been checked yet.")
@@ -95,6 +96,7 @@ final class AppStore: ObservableObject {
 
     private let persistenceStore: PersistenceStore
     private let credentialsStore: KeychainTokenStore
+    private let anthropicCredentialsStore: KeychainTokenStore
     private let linearCredentialsStore: KeychainTokenStore
     private let linearIssueImporter: any LinearIssueImporting
     private let workflow = TicketWorkflow()
@@ -111,6 +113,11 @@ final class AppStore: ObservableObject {
             service: keychainService,
             account: "openai.api-token",
             tokenDescription: "OpenAI API token"
+        )
+        self.anthropicCredentialsStore = KeychainTokenStore(
+            service: keychainService,
+            account: "anthropic.api-token",
+            tokenDescription: "Anthropic API token"
         )
         self.linearCredentialsStore = KeychainTokenStore(
             service: keychainService,
@@ -201,6 +208,7 @@ final class AppStore: ObservableObject {
                 self.selectedTicketID = nil
             }
             hasOpenAIAPIToken = try credentialsStore.loadToken()?.isEmpty == false
+            hasAnthropicAPIToken = try anthropicCredentialsStore.loadToken()?.isEmpty == false
             hasLinearAPIToken = try linearCredentialsStore.loadToken()?.isEmpty == false
         } catch {
             errorMessage = error.localizedDescription
@@ -241,6 +249,33 @@ final class AppStore: ObservableObject {
         do {
             try credentialsStore.deleteToken()
             hasOpenAIAPIToken = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadAnthropicAPIToken() -> String {
+        do {
+            return try anthropicCredentialsStore.loadToken() ?? ""
+        } catch {
+            errorMessage = error.localizedDescription
+            return ""
+        }
+    }
+
+    func saveAnthropicAPIToken(_ token: String) {
+        do {
+            try anthropicCredentialsStore.saveToken(token)
+            hasAnthropicAPIToken = token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteAnthropicAPIToken() {
+        do {
+            try anthropicCredentialsStore.deleteToken()
+            hasAnthropicAPIToken = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -507,7 +542,9 @@ final class AppStore: ObservableObject {
     }
 
     func saveSettings(
+        selectedProviderKind: AgentProviderKind,
         codexExecutablePath: String,
+        claudeExecutablePath: String,
         defaultWorkingDirectory: String,
         codexAuthStrategy: CodexAuthStrategy,
         researchModel: String,
@@ -520,7 +557,9 @@ final class AppStore: ObservableObject {
         reviewPrompt: String
     ) {
         let draft = AppSettings(
+            selectedProviderKind: selectedProviderKind,
             codexExecutablePath: codexExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines),
+            claudeExecutablePath: claudeExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines),
             defaultWorkingDirectory: defaultWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
             codexAuthStrategy: codexAuthStrategy,
             phaseModels: PhaseModelSelection(
@@ -557,22 +596,13 @@ final class AppStore: ObservableObject {
         var request: AgentRunRequest?
 
         do {
-            let token = try credentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
             let preparedRequest = try executionService.makeRequest(
                 for: ticket,
                 settings: settings,
                 workingDirectoryOverride: project.workingDirectory
             )
             request = preparedRequest
-            let loginStatus = await resolveCodexLoginStatus()
-            codexLoginStatus = loginStatus
-            let authResolver = CodexAuthResolver()
-            let resolution = try authResolver.resolve(
-                strategy: settings.codexAuthStrategy,
-                loginStatus: loginStatus,
-                hasAPIKey: token?.isEmpty == false,
-                model: preparedRequest.model
-            )
+            let executionPlan = try await makeExecutionPlan(for: preparedRequest)
             let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
             try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
             beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
@@ -580,14 +610,15 @@ final class AppStore: ObservableObject {
 
             let execution = try await executeRequest(
                 preparedRequest,
-                apiToken: token,
-                resolution: resolution
+                plan: executionPlan
             )
             let completedTicket = executionService.applyResult(
                 ticket: runningTicket,
                 request: preparedRequest,
                 result: execution.result,
-                authMethod: execution.authMethod,
+                providerKind: execution.providerKind,
+                authMethod: execution.codexAuthMethod,
+                authMethodDescription: execution.authMethodDescription,
                 didFallbackFromSubscription: execution.didFallbackFromSubscription
             )
             let finalTicket = try maybeAutoShift(
@@ -606,7 +637,9 @@ final class AppStore: ObservableObject {
                         ticket: currentTicket,
                         request: request,
                         errorMessage: executionError?.message ?? error.localizedDescription,
-                        authMethod: executionError?.authMethod ?? .unknown,
+                        providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
+                        authMethod: executionError?.codexAuthMethod ?? .unknown,
+                        authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
                         didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
                     )
                     try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
@@ -642,7 +675,6 @@ final class AppStore: ObservableObject {
         var request: AgentRunRequest?
 
         do {
-            let token = try credentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
             let preparedRequest = try executionService.makeContinuationRequest(
                 for: ticket,
                 settings: settings,
@@ -650,15 +682,7 @@ final class AppStore: ObservableObject {
                 workingDirectoryOverride: project.workingDirectory
             )
             request = preparedRequest
-            let loginStatus = await resolveCodexLoginStatus()
-            codexLoginStatus = loginStatus
-            let authResolver = CodexAuthResolver()
-            let resolution = try authResolver.resolve(
-                strategy: settings.codexAuthStrategy,
-                loginStatus: loginStatus,
-                hasAPIKey: token?.isEmpty == false,
-                model: preparedRequest.model
-            )
+            let executionPlan = try await makeExecutionPlan(for: preparedRequest)
             let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
             try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
             beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
@@ -666,14 +690,15 @@ final class AppStore: ObservableObject {
 
             let execution = try await executeRequest(
                 preparedRequest,
-                apiToken: token,
-                resolution: resolution
+                plan: executionPlan
             )
             let completedTicket = executionService.applyResult(
                 ticket: runningTicket,
                 request: preparedRequest,
                 result: execution.result,
-                authMethod: execution.authMethod,
+                providerKind: execution.providerKind,
+                authMethod: execution.codexAuthMethod,
+                authMethodDescription: execution.authMethodDescription,
                 didFallbackFromSubscription: execution.didFallbackFromSubscription
             )
             let finalTicket = try maybeAutoShift(
@@ -692,7 +717,9 @@ final class AppStore: ObservableObject {
                         ticket: currentTicket,
                         request: request,
                         errorMessage: executionError?.message ?? error.localizedDescription,
-                        authMethod: executionError?.authMethod ?? .unknown,
+                        providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
+                        authMethod: executionError?.codexAuthMethod ?? .unknown,
+                        authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
                         didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
                     )
                     try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
@@ -780,15 +807,63 @@ final class AppStore: ObservableObject {
         }.value
     }
 
+    private func makeExecutionPlan(for request: AgentRunRequest) async throws -> AgentExecutionPlan {
+        switch settings.selectedProviderKind {
+        case .codex:
+            let token = try credentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let loginStatus = await resolveCodexLoginStatus()
+            codexLoginStatus = loginStatus
+            let resolution = try CodexAuthResolver().resolve(
+                strategy: settings.codexAuthStrategy,
+                loginStatus: loginStatus,
+                hasAPIKey: token?.isEmpty == false,
+                model: request.model
+            )
+            return AgentExecutionPlan(
+                providerKind: .codex,
+                apiToken: token,
+                codexResolution: resolution
+            )
+        case .claude:
+            let token = try anthropicCredentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return AgentExecutionPlan(
+                providerKind: .claude,
+                apiToken: token,
+                codexResolution: nil
+            )
+        }
+    }
+
     private func executeRequest(
+        _ request: AgentRunRequest,
+        plan: AgentExecutionPlan
+    ) async throws -> AgentExecutionOutcome {
+        switch plan.providerKind {
+        case .codex:
+            guard let resolution = plan.codexResolution else {
+                throw CodexExecutionAttemptError(
+                    message: "Codex authentication was not resolved.",
+                    providerKind: .codex,
+                    codexAuthMethod: .unknown,
+                    authMethodDescription: "Unknown",
+                    didFallbackFromSubscription: false
+                )
+            }
+            return try await executeCodexRequest(request, apiToken: plan.apiToken, resolution: resolution)
+        case .claude:
+            return try await executeClaudeRequest(request, apiToken: plan.apiToken)
+        }
+    }
+
+    private func executeCodexRequest(
         _ request: AgentRunRequest,
         apiToken: String?,
         resolution: CodexAuthResolution
-    ) async throws -> CodexExecutionOutcome {
+    ) async throws -> AgentExecutionOutcome {
         let trimmedToken = apiToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAPIKey = trimmedToken?.isEmpty == false
         let authResolver = CodexAuthResolver()
-        let primaryProvider = makeProvider(
+        let primaryProvider = makeCodexProvider(
             authMethod: resolution.authMethod,
             apiToken: trimmedToken
         )
@@ -812,7 +887,7 @@ final class AppStore: ObservableObject {
                 previousResolution: resolution,
                 hasAPIKey: hasAPIKey
             ) {
-                let fallbackProvider = makeProvider(authMethod: .apiKey, apiToken: trimmedToken)
+                let fallbackProvider = makeCodexProvider(authMethod: .apiKey, apiToken: trimmedToken)
                 resetLiveOutput(for: request)
                 let fallbackResult = try await fallbackProvider.run(
                     request: request,
@@ -827,16 +902,20 @@ final class AppStore: ObservableObject {
                         }
                     }
                 )
-                return CodexExecutionOutcome(
+                return AgentExecutionOutcome(
                     result: fallbackResult,
-                    authMethod: .apiKey,
+                    providerKind: .codex,
+                    codexAuthMethod: .apiKey,
+                    authMethodDescription: CodexAuthMethod.apiKey.title,
                     didFallbackFromSubscription: true
                 )
             }
 
-            return CodexExecutionOutcome(
+            return AgentExecutionOutcome(
                 result: primaryResult,
-                authMethod: resolution.authMethod,
+                providerKind: .codex,
+                codexAuthMethod: resolution.authMethod,
+                authMethodDescription: resolution.authMethod.title,
                 didFallbackFromSubscription: false
             )
         } catch {
@@ -845,7 +924,7 @@ final class AppStore: ObservableObject {
                 previousResolution: resolution,
                 hasAPIKey: hasAPIKey
             ) {
-                let fallbackProvider = makeProvider(authMethod: .apiKey, apiToken: trimmedToken)
+                let fallbackProvider = makeCodexProvider(authMethod: .apiKey, apiToken: trimmedToken)
                 resetLiveOutput(for: request)
 
                 do {
@@ -862,15 +941,19 @@ final class AppStore: ObservableObject {
                             }
                         }
                     )
-                    return CodexExecutionOutcome(
+                    return AgentExecutionOutcome(
                         result: fallbackResult,
-                        authMethod: .apiKey,
+                        providerKind: .codex,
+                        codexAuthMethod: .apiKey,
+                        authMethodDescription: CodexAuthMethod.apiKey.title,
                         didFallbackFromSubscription: true
                     )
                 } catch {
                     throw CodexExecutionAttemptError(
                         message: error.localizedDescription,
-                        authMethod: .apiKey,
+                        providerKind: .codex,
+                        codexAuthMethod: .apiKey,
+                        authMethodDescription: CodexAuthMethod.apiKey.title,
                         didFallbackFromSubscription: true
                     )
                 }
@@ -878,13 +961,55 @@ final class AppStore: ObservableObject {
 
             throw CodexExecutionAttemptError(
                 message: error.localizedDescription,
-                authMethod: resolution.authMethod,
+                providerKind: .codex,
+                codexAuthMethod: resolution.authMethod,
+                authMethodDescription: resolution.authMethod.title,
                 didFallbackFromSubscription: false
             )
         }
     }
 
-    private func makeProvider(
+    private func executeClaudeRequest(
+        _ request: AgentRunRequest,
+        apiToken: String?
+    ) async throws -> AgentExecutionOutcome {
+        let provider = makeClaudeProvider(apiToken: apiToken?.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        do {
+            let result = try await provider.run(
+                request: request,
+                onStart: { [weak self] processIdentifier in
+                    Task { @MainActor in
+                        self?.attachProcess(processIdentifier, to: request)
+                    }
+                },
+                onOutput: { [weak self] chunk in
+                    Task { @MainActor in
+                        self?.appendLiveOutput(chunk, to: request)
+                    }
+                }
+            )
+            let hasToken = apiToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return AgentExecutionOutcome(
+                result: result,
+                providerKind: .claude,
+                codexAuthMethod: .unknown,
+                authMethodDescription: hasToken ? "Anthropic API Key" : "Claude CLI Session",
+                didFallbackFromSubscription: false
+            )
+        } catch {
+            let hasToken = apiToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            throw CodexExecutionAttemptError(
+                message: error.localizedDescription,
+                providerKind: .claude,
+                codexAuthMethod: .unknown,
+                authMethodDescription: hasToken ? "Anthropic API Key" : "Claude CLI Session",
+                didFallbackFromSubscription: false
+            )
+        }
+    }
+
+    private func makeCodexProvider(
         authMethod: CodexAuthMethod,
         apiToken: String?
     ) -> CodexCLIProvider {
@@ -903,6 +1028,20 @@ final class AppStore: ObservableObject {
 
         return CodexCLIProvider(
             executablePath: settings.codexExecutablePath,
+            environmentOverrides: environmentOverrides
+        )
+    }
+
+    private func makeClaudeProvider(apiToken: String?) -> ClaudeCLIProvider {
+        let environmentOverrides: [String: String]
+        if let apiToken, apiToken.isEmpty == false {
+            environmentOverrides = ["ANTHROPIC_API_KEY": apiToken]
+        } else {
+            environmentOverrides = [:]
+        }
+
+        return ClaudeCLIProvider(
+            executablePath: settings.claudeExecutablePath,
             environmentOverrides: environmentOverrides
         )
     }
@@ -1121,7 +1260,7 @@ final class AppStore: ObservableObject {
             let updatedTicket = try persistenceStore.updatePhaseState(ticketID: request.ticketID, phase: request.phase) { phaseState in
                 phaseState.ownedProcess = OwnedProcessReference(
                     processIdentifier: processIdentifier,
-                    executablePath: settings.codexExecutablePath,
+                    executablePath: executablePath(for: settings.selectedProviderKind),
                     launchedAt: phaseState.lastStartedAt ?? .now
                 )
             }
@@ -1171,6 +1310,15 @@ final class AppStore: ObservableObject {
         return projects.first(where: { $0.id == projectID })
     }
 
+    private func executablePath(for providerKind: AgentProviderKind) -> String {
+        switch providerKind {
+        case .codex:
+            settings.codexExecutablePath
+        case .claude:
+            settings.claudeExecutablePath
+        }
+    }
+
     private func makeArchivedDirectorySummary(
         project: ProjectRecord,
         tickets: [Ticket]
@@ -1211,15 +1359,25 @@ final class AppStore: ObservableObject {
     }
 }
 
-private struct CodexExecutionOutcome {
+private struct AgentExecutionPlan {
+    let providerKind: AgentProviderKind
+    let apiToken: String?
+    let codexResolution: CodexAuthResolution?
+}
+
+private struct AgentExecutionOutcome {
     let result: AgentRunResult
-    let authMethod: CodexAuthMethod
+    let providerKind: AgentProviderKind
+    let codexAuthMethod: CodexAuthMethod
+    let authMethodDescription: String
     let didFallbackFromSubscription: Bool
 }
 
 private struct CodexExecutionAttemptError: LocalizedError {
     let message: String
-    let authMethod: CodexAuthMethod
+    let providerKind: AgentProviderKind
+    let codexAuthMethod: CodexAuthMethod
+    let authMethodDescription: String
     let didFallbackFromSubscription: Bool
 
     var errorDescription: String? {

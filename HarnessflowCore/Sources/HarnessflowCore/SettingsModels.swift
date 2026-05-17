@@ -117,20 +117,26 @@ public struct PhasePromptSelection: Codable, Equatable, Sendable {
 }
 
 public struct AppSettings: Codable, Equatable, Sendable {
+    public var selectedProviderKind: AgentProviderKind
     public var codexExecutablePath: String
+    public var claudeExecutablePath: String
     public var defaultWorkingDirectory: String
     public var codexAuthStrategy: CodexAuthStrategy
     public var phaseModels: PhaseModelSelection
     public var phasePrompts: PhasePromptSelection
 
     public init(
+        selectedProviderKind: AgentProviderKind = .codex,
         codexExecutablePath: String = "/opt/homebrew/bin/codex",
+        claudeExecutablePath: String = "/opt/homebrew/bin/claude",
         defaultWorkingDirectory: String,
         codexAuthStrategy: CodexAuthStrategy = .preferSubscriptionFallbackToAPI,
         phaseModels: PhaseModelSelection = PhaseModelSelection(),
         phasePrompts: PhasePromptSelection = PhasePromptSelection()
     ) {
+        self.selectedProviderKind = selectedProviderKind
         self.codexExecutablePath = codexExecutablePath
+        self.claudeExecutablePath = claudeExecutablePath
         self.defaultWorkingDirectory = defaultWorkingDirectory
         self.codexAuthStrategy = codexAuthStrategy
         self.phaseModels = phaseModels

@@ -66,9 +66,31 @@ public struct AgentOutputChunk: Equatable, Sendable {
     }
 }
 
+public enum AgentProviderKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case codex
+    case claude
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .codex:
+            "Codex"
+        case .claude:
+            "Claude"
+        }
+    }
+}
+
 struct CodexCLIInvocation: Equatable, Sendable {
     var arguments: [String]
     var environment: [String: String]
+}
+
+struct ClaudeCLIInvocation: Equatable, Sendable {
+    var arguments: [String]
+    var environment: [String: String]
+    var currentDirectory: String
 }
 
 public protocol AgentProvider: Sendable {
@@ -93,11 +115,142 @@ public enum AgentProviderError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case let .executableNotFound(path):
-            "Codex executable was not found or is not executable at \(path)."
+            "Agent provider executable was not found or is not executable at \(path)."
         case let .invalidWorkingDirectory(path):
             "Working directory does not exist: \(path)."
         case let .launchFailure(message):
             "Failed to launch agent provider: \(message)"
+        }
+    }
+}
+
+public struct ClaudeCLIProvider: AgentProvider {
+    public var executablePath: String
+    public var extraArguments: [String]
+    public var environmentOverrides: [String: String]
+
+    public init(
+        executablePath: String = "/opt/homebrew/bin/claude",
+        extraArguments: [String] = [],
+        environmentOverrides: [String: String] = [:]
+    ) {
+        self.executablePath = executablePath
+        self.extraArguments = extraArguments
+        self.environmentOverrides = environmentOverrides
+    }
+
+    public func run(
+        request: AgentRunRequest,
+        onStart: (@Sendable (Int32) -> Void)? = nil,
+        onOutput: (@Sendable (AgentOutputChunk) -> Void)? = nil
+    ) async throws -> AgentRunResult {
+        let fileManager = FileManager.default
+        guard fileManager.isExecutableFile(atPath: executablePath) else {
+            throw AgentProviderError.executableNotFound(executablePath)
+        }
+
+        let workingDirectory = request.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: workingDirectory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw AgentProviderError.invalidWorkingDirectory(workingDirectory)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            let stdinPipe = Pipe()
+            let capture = ProcessOutputCapture()
+            let startedAt = Date()
+            let invocation = makeInvocation(for: request)
+
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = invocation.arguments
+            process.environment = invocation.environment
+            process.currentDirectoryURL = URL(fileURLWithPath: invocation.currentDirectory)
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            process.standardInput = stdinPipe
+
+            process.terminationHandler = { process in
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                capture.append(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), channel: .standardOutput)
+                capture.append(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), channel: .standardError)
+
+                continuation.resume(
+                    returning: AgentRunResult(
+                        output: capture.output(for: .standardOutput),
+                        errorOutput: capture.output(for: .standardError),
+                        startedAt: startedAt,
+                        completedAt: Date(),
+                        exitCode: process.terminationStatus
+                    )
+                )
+            }
+
+            do {
+                try process.run()
+                stdoutPipe.fileHandleForReading.readabilityHandler = makeReadabilityHandler(
+                    for: stdoutPipe.fileHandleForReading,
+                    channel: .standardOutput,
+                    capture: capture,
+                    onOutput: onOutput
+                )
+                stderrPipe.fileHandleForReading.readabilityHandler = makeReadabilityHandler(
+                    for: stderrPipe.fileHandleForReading,
+                    channel: .standardError,
+                    capture: capture,
+                    onOutput: onOutput
+                )
+                onStart?(process.processIdentifier)
+                if let promptData = request.prompt.data(using: .utf8) {
+                    stdinPipe.fileHandleForWriting.write(promptData)
+                }
+                stdinPipe.fileHandleForWriting.closeFile()
+            } catch {
+                continuation.resume(
+                    throwing: AgentProviderError.launchFailure(error.localizedDescription)
+                )
+            }
+        }
+    }
+
+    func makeInvocation(
+        for request: AgentRunRequest,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ClaudeCLIInvocation {
+        ClaudeCLIInvocation(
+            arguments: [
+                "-p",
+                "--model", request.model,
+                "--permission-mode", "bypassPermissions",
+            ] + extraArguments,
+            environment: baseEnvironment.merging(environmentOverrides) { _, override in override },
+            currentDirectory: request.workingDirectory
+        )
+    }
+
+    private func makeReadabilityHandler(
+        for handle: FileHandle,
+        channel: AgentOutputChannel,
+        capture: ProcessOutputCapture,
+        onOutput: (@Sendable (AgentOutputChunk) -> Void)?
+    ) -> @Sendable (FileHandle) -> Void {
+        { readableHandle in
+            let data = readableHandle.availableData
+            guard data.isEmpty == false else {
+                readableHandle.readabilityHandler = nil
+                return
+            }
+
+            capture.append(data: data, channel: channel)
+
+            let text = String(decoding: data, as: UTF8.self)
+            guard text.isEmpty == false else {
+                return
+            }
+            onOutput?(AgentOutputChunk(channel: channel, text: text))
         }
     }
 }
