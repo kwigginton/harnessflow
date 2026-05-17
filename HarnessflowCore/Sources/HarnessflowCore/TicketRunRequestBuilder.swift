@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TicketExecutionError: LocalizedError, Equatable, Sendable {
+public enum TicketRunRequestError: LocalizedError, Equatable, Sendable {
     case missingPrompt(TicketPhase)
     case missingWorkingDirectory
 
@@ -14,7 +14,7 @@ public enum TicketExecutionError: LocalizedError, Equatable, Sendable {
     }
 }
 
-public struct TicketExecutionService: Sendable {
+public struct TicketRunRequestBuilder: Sendable {
     public init() {}
 
     public func makeRequest(
@@ -26,15 +26,14 @@ public struct TicketExecutionService: Sendable {
         let phaseState = ticket.phaseState(for: phase)
         let basePrompt = settings.phasePrompts.prompt(for: phase)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !basePrompt.isEmpty else {
-            throw TicketExecutionError.missingPrompt(phase)
+        guard basePrompt.isEmpty == false else {
+            throw TicketRunRequestError.missingPrompt(phase)
         }
-        let promptAddendum = phaseState.prompt
 
         let workingDirectory = (workingDirectoryOverride ?? settings.defaultWorkingDirectory)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !workingDirectory.isEmpty else {
-            throw TicketExecutionError.missingWorkingDirectory
+        guard workingDirectory.isEmpty == false else {
+            throw TicketRunRequestError.missingWorkingDirectory
         }
 
         return AgentRunRequest(
@@ -44,10 +43,10 @@ public struct TicketExecutionService: Sendable {
                 for: ticket,
                 phase: phase,
                 basePrompt: basePrompt,
-                promptAddendum: promptAddendum,
+                promptAddendum: phaseState.prompt,
                 continuation: nil
             ),
-            promptAddendum: promptAddendum,
+            promptAddendum: phaseState.prompt,
             model: settings.phaseModels.model(for: phase),
             workingDirectory: workingDirectory
         )
@@ -63,14 +62,14 @@ public struct TicketExecutionService: Sendable {
         let phaseState = ticket.phaseState(for: phase)
         let basePrompt = settings.phasePrompts.prompt(for: phase)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !basePrompt.isEmpty else {
-            throw TicketExecutionError.missingPrompt(phase)
+        guard basePrompt.isEmpty == false else {
+            throw TicketRunRequestError.missingPrompt(phase)
         }
 
         let workingDirectory = (workingDirectoryOverride ?? settings.defaultWorkingDirectory)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !workingDirectory.isEmpty else {
-            throw TicketExecutionError.missingWorkingDirectory
+        guard workingDirectory.isEmpty == false else {
+            throw TicketRunRequestError.missingWorkingDirectory
         }
 
         return AgentRunRequest(
@@ -87,195 +86,6 @@ public struct TicketExecutionService: Sendable {
             model: settings.phaseModels.model(for: phase),
             workingDirectory: workingDirectory
         )
-    }
-
-    public func markRunning(ticket: Ticket, request: AgentRunRequest, at: Date = .now) -> Ticket {
-        var updated = ticket
-        var phaseState = updated.phaseState(for: request.phase)
-        phaseState.prompt = request.promptAddendum
-        phaseState.executionState = .running
-        phaseState.lastModel = request.model
-        phaseState.lastStartedAt = at
-        phaseState.lastCompletedAt = nil
-        phaseState.capturedOutput = ""
-        phaseState.capturedError = ""
-        phaseState.ownedProcess = nil
-        phaseState.pendingQuestions = nil
-        phaseState.pendingAnswers = []
-        updated.updatePhaseState(phaseState)
-        updated.updatedAt = at
-        return updated
-    }
-
-    public func applyResult(ticket: Ticket, request: AgentRunRequest, result: AgentRunResult) -> Ticket {
-        applyResult(
-            ticket: ticket,
-            request: request,
-            result: result,
-            authMethod: .unknown,
-            didFallbackFromSubscription: false
-        )
-    }
-
-    public func applyResult(
-        ticket: Ticket,
-        request: AgentRunRequest,
-        result: AgentRunResult,
-        authMethod: CodexAuthMethod,
-        didFallbackFromSubscription: Bool
-    ) -> Ticket {
-        applyResult(
-            ticket: ticket,
-            request: request,
-            result: result,
-            providerKind: .codex,
-            authMethod: authMethod,
-            authMethodDescription: authMethod.title,
-            didFallbackFromSubscription: didFallbackFromSubscription
-        )
-    }
-
-    public func applyResult(
-        ticket: Ticket,
-        request: AgentRunRequest,
-        result: AgentRunResult,
-        providerKind: AgentProviderKind,
-        authMethod: CodexAuthMethod = .unknown,
-        authMethodDescription: String,
-        didFallbackFromSubscription: Bool = false
-    ) -> Ticket {
-        var updated = ticket
-        var phaseState = updated.phaseState(for: request.phase)
-        let questionSet = result.success ? AgentQuestionContract.extractQuestionSet(from: result.output) : nil
-        let deliverable = result.success ? PhaseDeliverableContract.extractDeliverable(from: result.output) : nil
-        let deliverableError = result.success && deliverable == nil
-            && questionSet == nil
-            ? "Agent output did not include a wrapped \(request.phase.title.lowercased()) deliverable using the required Harnessflow markers."
-            : nil
-        let finalSuccess = result.success && deliverable != nil
-        let isAwaitingInput = result.success && questionSet != nil && deliverable == nil
-        let finalErrorOutput = combinedErrorOutput(
-            result.errorOutput,
-            additionalMessage: deliverableError
-        )
-        let runID = UUID()
-
-        phaseState.prompt = request.promptAddendum
-        phaseState.executionState = finalSuccess ? .completed : (isAwaitingInput ? .awaitingInput : .failed)
-        phaseState.lastModel = request.model
-        phaseState.lastStartedAt = result.startedAt
-        phaseState.lastCompletedAt = result.completedAt
-        phaseState.capturedOutput = result.output
-        phaseState.capturedError = finalErrorOutput
-        phaseState.ownedProcess = nil
-        if let deliverable {
-            phaseState.deliverableMarkdown = deliverable
-            phaseState.deliverableGeneratedAt = result.completedAt
-            phaseState.deliverableSourceRunID = runID
-            phaseState.pendingQuestions = nil
-            phaseState.pendingAnswers = []
-        } else if let questionSet {
-            phaseState.pendingQuestions = questionSet
-            phaseState.pendingAnswers = []
-        }
-        phaseState.runs.append(
-            PhaseRun(
-                id: runID,
-                phase: request.phase,
-                providerKind: providerKind,
-                model: request.model,
-                authMethod: authMethod,
-                authMethodDescription: authMethodDescription,
-                didFallbackFromSubscription: didFallbackFromSubscription,
-                prompt: request.prompt,
-                output: result.output,
-                errorOutput: finalErrorOutput,
-                startedAt: result.startedAt,
-                completedAt: result.completedAt,
-                success: finalSuccess
-            )
-        )
-        updated.updatePhaseState(phaseState)
-        updated.updatedAt = result.completedAt
-        return updated
-    }
-
-    public func applyFailure(
-        ticket: Ticket,
-        request: AgentRunRequest,
-        errorMessage: String,
-        failedAt: Date = .now
-    ) -> Ticket {
-        applyFailure(
-            ticket: ticket,
-            request: request,
-            errorMessage: errorMessage,
-            authMethod: .unknown,
-            didFallbackFromSubscription: false,
-            failedAt: failedAt
-        )
-    }
-
-    public func applyFailure(
-        ticket: Ticket,
-        request: AgentRunRequest,
-        errorMessage: String,
-        authMethod: CodexAuthMethod,
-        didFallbackFromSubscription: Bool,
-        failedAt: Date = .now
-    ) -> Ticket {
-        applyFailure(
-            ticket: ticket,
-            request: request,
-            errorMessage: errorMessage,
-            providerKind: .codex,
-            authMethod: authMethod,
-            authMethodDescription: authMethod.title,
-            didFallbackFromSubscription: didFallbackFromSubscription,
-            failedAt: failedAt
-        )
-    }
-
-    public func applyFailure(
-        ticket: Ticket,
-        request: AgentRunRequest,
-        errorMessage: String,
-        providerKind: AgentProviderKind,
-        authMethod: CodexAuthMethod = .unknown,
-        authMethodDescription: String,
-        didFallbackFromSubscription: Bool = false,
-        failedAt: Date = .now
-    ) -> Ticket {
-        var updated = ticket
-        var phaseState = updated.phaseState(for: request.phase)
-        let startedAt = phaseState.lastStartedAt ?? failedAt
-        phaseState.prompt = request.promptAddendum
-        phaseState.executionState = .failed
-        phaseState.lastModel = request.model
-        phaseState.lastStartedAt = startedAt
-        phaseState.lastCompletedAt = failedAt
-        phaseState.capturedOutput = ""
-        phaseState.capturedError = errorMessage
-        phaseState.ownedProcess = nil
-        phaseState.runs.append(
-            PhaseRun(
-                phase: request.phase,
-                providerKind: providerKind,
-                model: request.model,
-                authMethod: authMethod,
-                authMethodDescription: authMethodDescription,
-                didFallbackFromSubscription: didFallbackFromSubscription,
-                prompt: request.prompt,
-                output: "",
-                errorOutput: errorMessage,
-                startedAt: startedAt,
-                completedAt: failedAt,
-                success: false
-            )
-        )
-        updated.updatePhaseState(phaseState)
-        updated.updatedAt = failedAt
-        return updated
     }
 
     private func composePrompt(
@@ -431,21 +241,5 @@ public struct TicketExecutionService: Sendable {
         }
 
         return sections.joined(separator: "\n\n")
-    }
-
-    private func combinedErrorOutput(_ errorOutput: String, additionalMessage: String?) -> String {
-        let trimmedErrorOutput = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedAdditional = additionalMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        switch (trimmedErrorOutput.isEmpty, trimmedAdditional.isEmpty) {
-        case (false, false):
-            return "\(trimmedErrorOutput)\n\n\(trimmedAdditional)"
-        case (false, true):
-            return trimmedErrorOutput
-        case (true, false):
-            return trimmedAdditional
-        case (true, true):
-            return ""
-        }
     }
 }

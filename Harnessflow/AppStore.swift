@@ -175,8 +175,7 @@ final class AppStore: ObservableObject {
     private let anthropicCredentialsStore: KeychainTokenStore
     private let linearCredentialsStore: KeychainTokenStore
     private let linearIssueImporter: any LinearIssueImporting
-    private let workflow = TicketWorkflow()
-    private let executionService = TicketExecutionService()
+    private let ticketReducer = TicketReducer()
     private let processSupervisor = OwnedProcessSupervisor()
 
     init(modelContainer: ModelContainer, defaultWorkingDirectory: String) {
@@ -577,15 +576,7 @@ final class AppStore: ObservableObject {
             return false
         }
 
-        do {
-            let updated = try workflow.move(ticket, to: phase)
-            try persistenceStore.upsert(ticket: updated, projectID: projectID)
-            reload()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+        return dispatchTicketEvent(.moveRequested(destination: phase), for: ticket, projectID: projectID)
     }
 
     @discardableResult
@@ -598,15 +589,7 @@ final class AppStore: ObservableObject {
             return false
         }
 
-        do {
-            let shifted = try shiftCompletedTicket(ticket)
-            try persistenceStore.upsert(ticket: shifted, projectID: projectID)
-            reload()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+        return dispatchTicketEvent(.shiftForwardRequested, for: ticket, projectID: projectID)
     }
 
     @discardableResult
@@ -618,20 +601,7 @@ final class AppStore: ObservableObject {
             errorMessage = "Tickets can only be completed within their working directory row."
             return false
         }
-        guard ticket.phaseStates.contains(where: { $0.executionState == .running }) == false else {
-            errorMessage = "Stop running phases before marking this ticket completed."
-            return false
-        }
-
-        do {
-            let completed = workflow.complete(ticket)
-            try persistenceStore.upsert(ticket: completed, projectID: projectID)
-            reload()
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+        return dispatchTicketEvent(.completeRequested, for: ticket, projectID: projectID)
     }
 
     func saveSettings(
@@ -685,146 +655,18 @@ final class AppStore: ObservableObject {
             return
         }
 
-        let projectID = project.id
-        var request: AgentRunRequest?
-
-        do {
-            let preparedRequest = try executionService.makeRequest(
-                for: ticket,
-                settings: settings,
-                workingDirectoryOverride: project.workingDirectory
-            )
-            request = preparedRequest
-            let executionPlan = try await makeExecutionPlan(for: preparedRequest)
-            let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
-            try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
-            beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
-            reload()
-
-            let execution = try await executeRequest(
-                preparedRequest,
-                plan: executionPlan
-            )
-            let completedTicket = executionService.applyResult(
-                ticket: runningTicket,
-                request: preparedRequest,
-                result: execution.result,
-                providerKind: execution.providerKind,
-                authMethod: execution.codexAuthMethod,
-                authMethodDescription: execution.authMethodDescription,
-                didFallbackFromSubscription: execution.didFallbackFromSubscription
-            )
-            let finalTicket = try maybeAutoShift(
-                completedTicket,
-                completedAt: execution.result.completedAt
-            )
-            try persistenceStore.upsert(ticket: finalTicket, projectID: projectID)
-            completeLiveOutput(for: preparedRequest, result: execution.result)
-            reload()
-        } catch {
-            if let request {
-                do {
-                    let currentTicket = try persistenceStore.ticket(withID: ticketID) ?? ticket
-                    let executionError = error as? CodexExecutionAttemptError
-                    let failedTicket = executionService.applyFailure(
-                        ticket: currentTicket,
-                        request: request,
-                        errorMessage: executionError?.message ?? error.localizedDescription,
-                        providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
-                        authMethod: executionError?.codexAuthMethod ?? .unknown,
-                        authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
-                        didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
-                    )
-                    try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
-                    failLiveOutput(for: request, message: executionError?.message ?? error.localizedDescription)
-                    reload()
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            } else {
-                errorMessage = error.localizedDescription
-            }
-        }
+        await dispatchTicketEvent(.runRequested, for: ticket, projectID: project.id, project: project)
     }
 
     func submitAnswersAndContinue(ticketID: UUID, answers: [AgentAnswer]) async {
         guard
-            var ticket = tickets.first(where: { $0.id == ticketID }),
+            let ticket = tickets.first(where: { $0.id == ticketID }),
             let project = project(forTicketID: ticketID)
         else {
             return
         }
 
-        let phase = ticket.column
-        var phaseState = ticket.phaseState(for: phase)
-        guard phaseState.pendingQuestions != nil else {
-            return
-        }
-
-        phaseState.pendingAnswers = answers
-        ticket.updatePhaseState(phaseState)
-
-        let projectID = project.id
-        var request: AgentRunRequest?
-
-        do {
-            let preparedRequest = try executionService.makeContinuationRequest(
-                for: ticket,
-                settings: settings,
-                answers: answers,
-                workingDirectoryOverride: project.workingDirectory
-            )
-            request = preparedRequest
-            let executionPlan = try await makeExecutionPlan(for: preparedRequest)
-            let runningTicket = executionService.markRunning(ticket: ticket, request: preparedRequest)
-            try persistenceStore.upsert(ticket: runningTicket, projectID: projectID)
-            beginLiveOutput(for: preparedRequest, startedAt: runningTicket.phaseState(for: preparedRequest.phase).lastStartedAt ?? .now)
-            reload()
-
-            let execution = try await executeRequest(
-                preparedRequest,
-                plan: executionPlan
-            )
-            let completedTicket = executionService.applyResult(
-                ticket: runningTicket,
-                request: preparedRequest,
-                result: execution.result,
-                providerKind: execution.providerKind,
-                authMethod: execution.codexAuthMethod,
-                authMethodDescription: execution.authMethodDescription,
-                didFallbackFromSubscription: execution.didFallbackFromSubscription
-            )
-            let finalTicket = try maybeAutoShift(
-                completedTicket,
-                completedAt: execution.result.completedAt
-            )
-            try persistenceStore.upsert(ticket: finalTicket, projectID: projectID)
-            completeLiveOutput(for: preparedRequest, result: execution.result)
-            reload()
-        } catch {
-            if let request {
-                do {
-                    let currentTicket = try persistenceStore.ticket(withID: ticketID) ?? ticket
-                    let executionError = error as? CodexExecutionAttemptError
-                    let failedTicket = executionService.applyFailure(
-                        ticket: currentTicket,
-                        request: request,
-                        errorMessage: executionError?.message ?? error.localizedDescription,
-                        providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
-                        authMethod: executionError?.codexAuthMethod ?? .unknown,
-                        authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
-                        didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
-                    )
-                    try persistenceStore.upsert(ticket: failedTicket, projectID: projectID)
-                    failLiveOutput(for: request, message: executionError?.message ?? error.localizedDescription)
-                    reload()
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            } else {
-                errorMessage = error.localizedDescription
-            }
-        }
+        await dispatchTicketEvent(.continuationRequested(answers: answers), for: ticket, projectID: project.id, project: project)
     }
 
     func terminateOwnedProcess(ticketID: UUID, phase: TicketPhase, force: Bool = false) {
@@ -966,7 +808,7 @@ final class AppStore: ObservableObject {
                 request: request,
                 onStart: { [weak self] processIdentifier in
                     Task { @MainActor in
-                        self?.attachProcess(processIdentifier, to: request)
+                        self?.handleProcessStarted(processIdentifier, for: request)
                     }
                 },
                 onOutput: { [weak self] chunk in
@@ -986,7 +828,7 @@ final class AppStore: ObservableObject {
                     request: request,
                     onStart: { [weak self] processIdentifier in
                         Task { @MainActor in
-                            self?.attachProcess(processIdentifier, to: request)
+                            self?.handleProcessStarted(processIdentifier, for: request)
                         }
                     },
                     onOutput: { [weak self] chunk in
@@ -1025,7 +867,7 @@ final class AppStore: ObservableObject {
                         request: request,
                         onStart: { [weak self] processIdentifier in
                             Task { @MainActor in
-                                self?.attachProcess(processIdentifier, to: request)
+                                self?.handleProcessStarted(processIdentifier, for: request)
                             }
                         },
                         onOutput: { [weak self] chunk in
@@ -1073,7 +915,7 @@ final class AppStore: ObservableObject {
                 request: request,
                 onStart: { [weak self] processIdentifier in
                     Task { @MainActor in
-                        self?.attachProcess(processIdentifier, to: request)
+                        self?.handleProcessStarted(processIdentifier, for: request)
                     }
                 },
                 onOutput: { [weak self] chunk in
@@ -1146,33 +988,167 @@ final class AppStore: ObservableObject {
             .joined(separator: "\n\n")
     }
 
-    private func maybeAutoShift(_ ticket: Ticket, completedAt: Date) throws -> Ticket {
-        guard ticket.autoShiftOnSuccess else {
-            return ticket
-        }
-
-        let state = ticket.phaseState(for: ticket.column)
-        guard state.executionState == .completed else {
-            return ticket
-        }
-
-        return try shiftCompletedTicket(ticket, movedAt: completedAt)
+    @discardableResult
+    private func dispatchTicketEvent(
+        _ event: TicketEvent,
+        for ticket: Ticket,
+        projectID: UUID,
+        project: ProjectRecord? = nil,
+        now: Date = .now
+    ) -> Bool {
+        let result = ticketReducer.reduce(
+            ticket: ticket,
+            event: event,
+            context: ticketReducerContext(project: project, now: now)
+        )
+        return interpretTicketCommands(result.commands, latestTicket: result.ticket, projectID: projectID)
     }
 
-    private func shiftCompletedTicket(
-        _ ticket: Ticket,
-        movedAt: Date = .now
-    ) throws -> Ticket {
-        let state = ticket.phaseState(for: ticket.column)
-        guard state.executionState == .completed else {
-            throw TicketWorkflowError.currentPhaseIncomplete(ticket.column)
+    private func dispatchTicketEvent(
+        _ event: TicketEvent,
+        for ticket: Ticket,
+        projectID: UUID,
+        project: ProjectRecord? = nil,
+        now: Date = .now
+    ) async {
+        let result = ticketReducer.reduce(
+            ticket: ticket,
+            event: event,
+            context: ticketReducerContext(project: project, now: now)
+        )
+        await interpretTicketCommands(result.commands, latestTicket: result.ticket, projectID: projectID, project: project)
+    }
+
+    private func ticketReducerContext(project: ProjectRecord?, now: Date = .now) -> TicketReducerContext {
+        TicketReducerContext(
+            settings: settings,
+            workingDirectoryOverride: project?.workingDirectory,
+            now: now
+        )
+    }
+
+    @discardableResult
+    private func interpretTicketCommands(
+        _ commands: [TicketCommand],
+        latestTicket: Ticket,
+        projectID: UUID
+    ) -> Bool {
+        var succeeded = true
+
+        for command in commands {
+            switch command {
+            case let .persistTicket(ticket):
+                do {
+                    try persistenceStore.upsert(ticket: ticket, projectID: projectID)
+                    reload()
+                } catch {
+                    presentError(error.localizedDescription)
+                    succeeded = false
+                }
+            case let .beginLiveOutput(request, startedAt):
+                beginLiveOutput(for: request, startedAt: startedAt)
+            case let .completeLiveOutput(request, result):
+                completeLiveOutput(for: request, result: result)
+            case let .failLiveOutput(request, message):
+                failLiveOutput(for: request, message: message)
+            case let .clearLiveOutput(ticketID, phase):
+                livePhaseOutputs.removeValue(forKey: LivePhaseOutputKey(ticketID: ticketID, phase: phase))
+            case let .presentError(message):
+                presentError(message)
+                succeeded = false
+            case .runAgent:
+                presentError("Agent execution commands must be handled asynchronously.")
+                succeeded = false
+            }
         }
 
-        if let nextPhase = ticket.column.next {
-            return try workflow.move(ticket, to: nextPhase, movedAt: movedAt)
-        }
+        return succeeded
+    }
 
-        return try workflow.completeAfterReview(ticket, completedAt: movedAt)
+    private func interpretTicketCommands(
+        _ commands: [TicketCommand],
+        latestTicket: Ticket,
+        projectID: UUID,
+        project: ProjectRecord?
+    ) async {
+        var currentTicket = latestTicket
+
+        for command in commands {
+            switch command {
+            case let .persistTicket(ticket):
+                do {
+                    try persistenceStore.upsert(ticket: ticket, projectID: projectID)
+                    currentTicket = ticket
+                    reload()
+                } catch {
+                    presentError(error.localizedDescription)
+                }
+            case let .beginLiveOutput(request, startedAt):
+                beginLiveOutput(for: request, startedAt: startedAt)
+            case let .runAgent(request):
+                await runAgentCommand(request, latestTicket: currentTicket, projectID: projectID, project: project)
+            case let .completeLiveOutput(request, result):
+                completeLiveOutput(for: request, result: result)
+            case let .failLiveOutput(request, message):
+                failLiveOutput(for: request, message: message)
+            case let .clearLiveOutput(ticketID, phase):
+                livePhaseOutputs.removeValue(forKey: LivePhaseOutputKey(ticketID: ticketID, phase: phase))
+            case let .presentError(message):
+                presentError(message)
+            }
+        }
+    }
+
+    private func runAgentCommand(
+        _ request: AgentRunRequest,
+        latestTicket: Ticket,
+        projectID: UUID,
+        project: ProjectRecord?
+    ) async {
+        do {
+            let executionPlan = try await makeExecutionPlan(for: request)
+            let execution = try await executeRequest(request, plan: executionPlan)
+            let currentTicket = loadPersistedTicket(id: request.ticketID, fallback: latestTicket)
+            await dispatchTicketEvent(
+                .agentResultReceived(
+                    request: request,
+                    result: execution.result,
+                    providerKind: execution.providerKind,
+                    authMethod: execution.codexAuthMethod,
+                    authMethodDescription: execution.authMethodDescription,
+                    didFallbackFromSubscription: execution.didFallbackFromSubscription
+                ),
+                for: currentTicket,
+                projectID: projectID,
+                project: project,
+                now: execution.result.completedAt
+            )
+        } catch {
+            let executionError = error as? CodexExecutionAttemptError
+            let message = executionError?.message ?? error.localizedDescription
+            let currentTicket = loadPersistedTicket(id: request.ticketID, fallback: latestTicket)
+            await dispatchTicketEvent(
+                .agentFailureReceived(
+                    request: request,
+                    message: message,
+                    providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
+                    authMethod: executionError?.codexAuthMethod ?? .unknown,
+                    authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
+                    didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
+                ),
+                for: currentTicket,
+                projectID: projectID,
+                project: project
+            )
+        }
+    }
+
+    private func loadPersistedTicket(id: UUID, fallback: Ticket) -> Ticket {
+        do {
+            return try persistenceStore.ticket(withID: id) ?? fallback
+        } catch {
+            return fallback
+        }
     }
 
     private func beginLiveOutput(for request: AgentRunRequest, startedAt: Date) {
@@ -1187,16 +1163,32 @@ final class AppStore: ObservableObject {
         )
     }
 
-    private func attachProcess(_ processIdentifier: Int32, to request: AgentRunRequest) {
+    private func handleProcessStarted(_ processIdentifier: Int32, for request: AgentRunRequest) {
         let key = liveOutputKey(for: request)
-        guard var liveOutput = livePhaseOutputs[key] else {
+        if var liveOutput = livePhaseOutputs[key] {
+            liveOutput.processIdentifier = processIdentifier
+            liveOutput.lastUpdatedAt = .now
+            livePhaseOutputs[key] = liveOutput
+        }
+
+        guard
+            let ticket = ticket(withID: request.ticketID),
+            let projectID = ticketProjectIDs[request.ticketID]
+        else {
             return
         }
 
-        liveOutput.processIdentifier = processIdentifier
-        liveOutput.lastUpdatedAt = .now
-        livePhaseOutputs[key] = liveOutput
-        persistOwnedProcess(for: request, processIdentifier: processIdentifier)
+        let project = projects.first(where: { $0.id == projectID })
+        dispatchTicketEvent(
+            .processAttached(
+                request: request,
+                processIdentifier: processIdentifier,
+                executablePath: executablePath(for: settings.selectedProviderKind)
+            ),
+            for: ticket,
+            projectID: projectID,
+            project: project
+        )
     }
 
     private func appendLiveOutput(_ chunk: AgentOutputChunk, to request: AgentRunRequest) {
@@ -1348,45 +1340,22 @@ final class AppStore: ObservableObject {
         return formatted
     }
 
-    private func persistOwnedProcess(for request: AgentRunRequest, processIdentifier: Int32) {
-        do {
-            let updatedTicket = try persistenceStore.updatePhaseState(ticketID: request.ticketID, phase: request.phase) { phaseState in
-                phaseState.ownedProcess = OwnedProcessReference(
-                    processIdentifier: processIdentifier,
-                    executablePath: executablePath(for: settings.selectedProviderKind),
-                    launchedAt: phaseState.lastStartedAt ?? .now
-                )
-            }
-            if let updatedTicket {
-                replaceTicketInMemory(updatedTicket)
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     private func markPhaseRecovered(ticketID: UUID, phase: TicketPhase, recoveryMessage: String) {
-        do {
-            let recoveredTicket = try persistenceStore.updatePhaseState(ticketID: ticketID, phase: phase) { phaseState in
-                let existing = phaseState.capturedError.trimmingCharacters(in: .whitespacesAndNewlines)
-                let addition = recoveryMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-                phaseState.executionState = .failed
-                phaseState.lastCompletedAt = .now
-                phaseState.ownedProcess = nil
-                phaseState.capturedError = [existing, addition]
-                    .filter { $0.isEmpty == false }
-                    .joined(separator: existing.isEmpty ? "" : "\n\n")
-            }
-
-            livePhaseOutputs.removeValue(forKey: LivePhaseOutputKey(ticketID: ticketID, phase: phase))
-            if recoveredTicket == nil {
-                errorMessage = "Ticket not found."
-            } else {
-                reload()
-            }
-        } catch {
-            errorMessage = error.localizedDescription
+        guard
+            let ticket = ticket(withID: ticketID),
+            let projectID = ticketProjectIDs[ticketID]
+        else {
+            errorMessage = "Ticket not found."
+            return
         }
+
+        let project = projects.first(where: { $0.id == projectID })
+        dispatchTicketEvent(
+            .phaseRecovered(phase: phase, message: recoveryMessage),
+            for: ticket,
+            projectID: projectID,
+            project: project
+        )
     }
 
     private func replaceTicketInMemory(_ updatedTicket: Ticket) {

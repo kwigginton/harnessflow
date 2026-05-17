@@ -134,7 +134,7 @@ struct LinearIssueImportTests {
             phasePrompts: PhasePromptSelection(research: "Research base prompt")
         )
 
-        let request = try TicketExecutionService().makeRequest(for: ticket, settings: settings)
+        let request = try TicketRunRequestBuilder().makeRequest(for: ticket, settings: settings)
 
         #expect(request.prompt.contains("Title: ENG-123: Import from Linear"))
         #expect(request.prompt.contains("Source: ENG-123"))
