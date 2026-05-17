@@ -1,14 +1,27 @@
+# macOS
 .DS_Store
+
+# Swift Package Manager
 .build/
+**/.build/
+
+# Xcode build products and indexes
 build/
+**/build/
 .derivedData/
 DerivedData/
+*.dSYM/
+*.xcresult/
+*.profdata
+
+# Xcode user state
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xccheckout
 *.moved-aside
+
+# Local scratch/debug files
+*.log
 *.swp
 *.tmp
-HarnessflowCore/.build/
-HarnessflowCore/build/

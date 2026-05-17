@@ -1,6 +1,0 @@
-Target dependency graph (3 targets)
-Target 'Harnessflow' in project 'Harnessflow'
-➜ Explicit dependency on target 'HarnessflowCore' in project 'HarnessflowCore'
-Target 'HarnessflowCore' in project 'HarnessflowCore'
-➜ Explicit dependency on target 'HarnessflowCore' in project 'HarnessflowCore'
-Target 'HarnessflowCore' in project 'HarnessflowCore' (no dependencies)

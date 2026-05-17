@@ -5,6 +5,7 @@ import HarnessflowCore
 enum PersistenceStoreError: LocalizedError {
     case missingProject(UUID)
     case duplicateActiveProject(String)
+    case validation(String)
 
     var errorDescription: String? {
         switch self {
@@ -12,6 +13,8 @@ enum PersistenceStoreError: LocalizedError {
             "Project not found: \(id.uuidString)"
         case let .duplicateActiveProject(path):
             "A working directory row already exists for \(path)."
+        case let .validation(message):
+            message
         }
     }
 }
@@ -194,6 +197,24 @@ final class PersistenceStore {
         }
         entity.updatedAt = .now
         try context.save()
+    }
+
+    func updateTicketDetails(ticketID: UUID, title: String, detailsText: String) throws -> Ticket? {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchTicketEntity(id: ticketID) else {
+            return nil
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.isEmpty == false else {
+            throw PersistenceStoreError.validation("Ticket title cannot be empty.")
+        }
+
+        entity.title = trimmedTitle
+        entity.detailsText = detailsText.trimmingCharacters(in: .whitespacesAndNewlines)
+        entity.updatedAt = .now
+        try context.save()
+        return entity.toDomain()
     }
 
     func archiveTicket(ticketID: UUID, archivedAt: Date = .now) throws -> Ticket? {

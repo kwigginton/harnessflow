@@ -240,6 +240,7 @@ private struct DirectoryBoardRowView: View {
 }
 
 private struct PhaseColumnView: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore
     let projectID: UUID
     let column: BoardColumn
@@ -277,6 +278,9 @@ private struct PhaseColumnView: View {
                             isSelected: selection.selectedTicketID == ticket.id,
                             onSelect: {
                                 store.selectTicket(ticket.id)
+                            },
+                            onOpenDetail: {
+                                openWindow(id: "ticket-detail", value: TicketDetailWindowRoute(ticketID: ticket.id))
                             },
                             onComplete: {
                                 store.completeTicket(id: ticket.id, projectID: projectID)
@@ -331,6 +335,7 @@ private struct TicketCardView: View, @preconcurrency Equatable {
     let ticket: AppStore.BoardTicketSummary
     let isSelected: Bool
     let onSelect: () -> Void
+    let onOpenDetail: () -> Void
     let onComplete: () -> Void
     let onShiftForward: () -> Void
 
@@ -443,6 +448,12 @@ private struct TicketCardView: View, @preconcurrency Equatable {
                 )
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded {
+                        onOpenDetail()
+                    }
+            )
         }
         .draggable(ticket.id.uuidString)
     }

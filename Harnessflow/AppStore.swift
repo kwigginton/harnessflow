@@ -566,6 +566,29 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func saveTicketDetails(ticketID: UUID, title: String, detailsText: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetails = detailsText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.isEmpty == false else {
+            errorMessage = "Ticket title cannot be empty."
+            return
+        }
+
+        do {
+            if let updatedTicket = try persistenceStore.updateTicketDetails(
+                ticketID: ticketID,
+                title: trimmedTitle,
+                detailsText: trimmedDetails
+            ) {
+                replaceTicketInMemory(updatedTicket)
+            } else {
+                errorMessage = "Ticket not found."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func archiveTicket(id: UUID) {
         errorMessage = nil
         guard let ticket = tickets.first(where: { $0.id == id }) else {
@@ -1244,7 +1267,7 @@ final class AppStore: ObservableObject {
 
     private func appendLiveOutput(_ chunk: AgentOutputChunk, to request: AgentRunRequest) {
         let key = liveOutputKey(for: request)
-        guard livePhaseOutputs[key] != nil else {
+        guard let liveOutput = livePhaseOutputs[key] else {
             return
         }
 
@@ -1254,8 +1277,15 @@ final class AppStore: ObservableObject {
             pending.standardOutput.append(chunk.text)
             pending.combinedText.append(chunk.text)
         case .standardError:
+            let isFirstStandardError = liveOutput.standardError.isEmpty && pending.standardError.isEmpty
             pending.standardError.append(chunk.text)
-            pending.combinedText.append(formatStandardError(chunk.text))
+            if isFirstStandardError {
+                if liveOutput.combinedText.isEmpty == false || pending.combinedText.isEmpty == false {
+                    pending.combinedText.append("\n")
+                }
+                pending.combinedText.append("[stderr]\n")
+            }
+            pending.combinedText.append(chunk.text)
         }
         pendingLiveOutputChunks[key] = pending
 
@@ -1372,23 +1402,17 @@ final class AppStore: ObservableObject {
         case (true, false):
             return formatStandardError(standardError)
         case (false, false):
-            return standardOutput + (standardOutput.hasSuffix("\n") ? "" : "\n") + formatStandardError(standardError)
+            return standardOutput + (standardOutput.hasSuffix("\n") ? "" : "\n") + "\n" + formatStandardError(standardError)
         case (true, true):
             return ""
         }
     }
 
     private func formatStandardError(_ text: String) -> String {
-        let trailingNewline = text.hasSuffix("\n")
-        let formatted = text
-            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-            .map { "[stderr] \($0)" }
-            .joined(separator: "\n")
-
-        if trailingNewline {
-            return formatted + "\n"
+        guard text.isEmpty == false else {
+            return ""
         }
-        return formatted
+        return "[stderr]\n" + text
     }
 
     private func markPhaseRecovered(ticketID: UUID, phase: TicketPhase, recoveryMessage: String) {

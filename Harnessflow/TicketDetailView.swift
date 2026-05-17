@@ -6,7 +6,10 @@ struct TicketDetailView: View {
     @EnvironmentObject private var store: AppStore
     let summary: AppStore.BoardTicketSummary?
     let ticket: Ticket?
+    var isHeaderEditable = false
     @State private var promptDraft = ""
+    @State private var titleDraft = ""
+    @State private var detailsDraft = ""
     @State private var expandedOutputPhases = Set<TicketPhase>()
     @State private var isLatestResultExpanded = false
     @State private var isRunHistoryExpanded = false
@@ -111,19 +114,7 @@ struct TicketDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(ticket.title)
-                            .font(.title2.weight(.semibold))
-
-                        Spacer(minLength: 12)
-
-                        ticketActions(for: ticket)
-                    }
-
-                    if ticket.detailsText.isEmpty == false {
-                        Text(ticket.detailsText)
-                            .foregroundStyle(.secondary)
-                    }
+                    ticketHeader(for: ticket)
 
                     HStack(spacing: 10) {
                         PhaseLabel(phase: phase, font: .callout.weight(.semibold), iconSize: 20)
@@ -327,6 +318,8 @@ struct TicketDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
+            titleDraft = ticket.title
+            detailsDraft = ticket.detailsText
             promptDraft = phaseState.prompt
             resetAnswers(from: phaseState.pendingQuestions)
             expandedOutputPhases = []
@@ -334,6 +327,8 @@ struct TicketDetailView: View {
             isRunHistoryExpanded = false
         }
         .onChange(of: ticket.id) { _, _ in
+            titleDraft = ticket.title
+            detailsDraft = ticket.detailsText
             promptDraft = ticket.phaseState(for: ticket.column).prompt
             resetAnswers(from: ticket.phaseState(for: ticket.column).pendingQuestions)
             expandedOutputPhases = []
@@ -348,6 +343,73 @@ struct TicketDetailView: View {
                 promptDraft = phaseState.prompt
             }
         }
+        .onChange(of: ticket.title) { _, newValue in
+            if newValue != titleDraft {
+                titleDraft = newValue
+            }
+        }
+        .onChange(of: ticket.detailsText) { _, newValue in
+            if newValue != detailsDraft {
+                detailsDraft = newValue
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ticketHeader(for ticket: Ticket) -> some View {
+        if isHeaderEditable {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    TextField("Title", text: $titleDraft)
+                        .font(.title2.weight(.semibold))
+                        .textFieldStyle(.roundedBorder)
+
+                    ticketActions(for: ticket)
+                }
+
+                TextField("Details", text: $detailsDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(3...8)
+
+                HStack {
+                    Button("Save Details") {
+                        store.saveTicketDetails(
+                            ticketID: ticket.id,
+                            title: titleDraft,
+                            detailsText: detailsDraft
+                        )
+                    }
+                    .disabled(ticketDetailsAreUnchanged(from: ticket))
+                    .disabled(titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Title is required.")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+
+                    Spacer()
+                }
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(ticket.title)
+                    .font(.title2.weight(.semibold))
+
+                Spacer(minLength: 12)
+
+                ticketActions(for: ticket)
+            }
+
+            if ticket.detailsText.isEmpty == false {
+                Text(ticket.detailsText)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func ticketDetailsAreUnchanged(from ticket: Ticket) -> Bool {
+        titleDraft == ticket.title && detailsDraft == ticket.detailsText
     }
 
     @ViewBuilder

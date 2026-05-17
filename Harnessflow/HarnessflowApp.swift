@@ -31,6 +31,12 @@ struct HarnessflowApp: App {
         }
         .defaultSize(width: 960, height: 720)
 
+        WindowGroup("Ticket Detail", id: "ticket-detail", for: TicketDetailWindowRoute.self) { route in
+            TicketDetailWindowView(route: route.wrappedValue)
+                .environmentObject(store)
+        }
+        .defaultSize(width: 1200, height: 780)
+
         Settings {
             SettingsView()
                 .environmentObject(store)
