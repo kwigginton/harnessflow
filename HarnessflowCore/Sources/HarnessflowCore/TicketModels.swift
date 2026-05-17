@@ -211,11 +211,13 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
     public var column: TicketPhase
     public var autoShiftOnSuccess: Bool
     public var completedAt: Date?
+    public var archivedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
     public var phaseStates: [TicketPhaseState]
 
     public var isDone: Bool { completedAt != nil }
+    public var isArchived: Bool { archivedAt != nil }
 
     public init(
         id: UUID = UUID(),
@@ -224,6 +226,7 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
         column: TicketPhase = .research,
         autoShiftOnSuccess: Bool = false,
         completedAt: Date? = nil,
+        archivedAt: Date? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         phaseStates: [TicketPhaseState] = TicketPhase.allCases.map(TicketPhaseState.empty(for:))
@@ -234,6 +237,7 @@ public struct Ticket: Identifiable, Codable, Equatable, Sendable {
         self.column = column
         self.autoShiftOnSuccess = autoShiftOnSuccess
         self.completedAt = completedAt
+        self.archivedAt = archivedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.phaseStates = Ticket.normalizedStates(from: phaseStates)

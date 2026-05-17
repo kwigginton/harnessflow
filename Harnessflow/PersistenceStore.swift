@@ -51,7 +51,7 @@ final class PersistenceStore {
             .map { $0.toRecord() }
     }
 
-    func loadTickets(projectID: UUID) throws -> [Ticket] {
+    func loadTickets(projectID: UUID, includeArchived: Bool = false) throws -> [Ticket] {
         try bootstrapIfNeeded()
         let descriptor = FetchDescriptor<TicketEntity>(
             predicate: #Predicate<TicketEntity> { ticket in
@@ -59,7 +59,9 @@ final class PersistenceStore {
             },
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        return try context.fetch(descriptor).map { $0.toDomain() }
+        return try context.fetch(descriptor)
+            .map { $0.toDomain() }
+            .filter { includeArchived || $0.isArchived == false }
     }
 
     func loadSettings() throws -> AppSettings {
@@ -191,6 +193,28 @@ final class PersistenceStore {
             phaseEntity.prompt = prompt
         }
         entity.updatedAt = .now
+        try context.save()
+    }
+
+    func archiveTicket(ticketID: UUID, archivedAt: Date = .now) throws -> Ticket? {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchTicketEntity(id: ticketID) else {
+            return nil
+        }
+
+        entity.archivedAt = archivedAt
+        entity.updatedAt = archivedAt
+        try context.save()
+        return entity.toDomain()
+    }
+
+    func deleteTicket(ticketID: UUID) throws {
+        try bootstrapIfNeeded()
+        guard let entity = try fetchTicketEntity(id: ticketID) else {
+            return
+        }
+
+        context.delete(entity)
         try context.save()
     }
 

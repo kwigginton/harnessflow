@@ -566,6 +566,57 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func archiveTicket(id: UUID) {
+        errorMessage = nil
+        guard let ticket = tickets.first(where: { $0.id == id }) else {
+            errorMessage = "Ticket not found."
+            return
+        }
+        guard ticket.phaseStates.contains(where: { $0.executionState == .running }) == false else {
+            errorMessage = "Stop running phases before archiving this ticket."
+            return
+        }
+
+        do {
+            _ = try persistenceStore.archiveTicket(ticketID: id)
+            if selectedTicketID == id {
+                selectTicket(nil)
+            }
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteTicket(id: UUID) {
+        errorMessage = nil
+        guard let ticket = tickets.first(where: { $0.id == id }) else {
+            errorMessage = "Ticket not found."
+            return
+        }
+        guard ticket.phaseStates.contains(where: { $0.executionState == .running }) == false else {
+            errorMessage = "Stop running phases before deleting this ticket."
+            return
+        }
+
+        do {
+            try persistenceStore.deleteTicket(ticketID: id)
+            for phase in TicketPhase.allCases {
+                let key = LivePhaseOutputKey(ticketID: id, phase: phase)
+                livePhaseOutputs.removeValue(forKey: key)
+                pendingLiveOutputChunks.removeValue(forKey: key)
+                liveOutputFlushTasks[key]?.cancel()
+                liveOutputFlushTasks.removeValue(forKey: key)
+            }
+            if selectedTicketID == id {
+                selectTicket(nil)
+            }
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func moveTicket(id: UUID, to phase: TicketPhase, projectID: UUID) -> Bool {
         guard let ticket = tickets.first(where: { $0.id == id }) else {

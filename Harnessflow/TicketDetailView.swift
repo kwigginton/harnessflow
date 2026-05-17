@@ -12,6 +12,7 @@ struct TicketDetailView: View {
     @State private var isRunHistoryExpanded = false
     @State private var selectedChoices: [String: String] = [:]
     @State private var freeformAnswers: [String: String] = [:]
+    @State private var deletionTicket: Ticket?
 
     private var paneBackground: Color {
         Color(nsColor: .underPageBackgroundColor)
@@ -37,6 +38,34 @@ struct TicketDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .confirmationDialog(
+            "Delete Ticket?",
+            isPresented: deletionDialogBinding,
+            titleVisibility: .visible,
+            presenting: deletionTicket
+        ) { ticket in
+            Button("Delete Ticket", role: .destructive) {
+                store.deleteTicket(id: ticket.id)
+                deletionTicket = nil
+            }
+
+            Button("Cancel", role: .cancel) {
+                deletionTicket = nil
+            }
+        } message: { ticket in
+            Text("This permanently deletes \"\(ticket.title)\" and all phase history. This cannot be undone.")
+        }
+    }
+
+    private var deletionDialogBinding: Binding<Bool> {
+        Binding(
+            get: { deletionTicket != nil },
+            set: { isPresented in
+                if isPresented == false {
+                    deletionTicket = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -82,8 +111,14 @@ struct TicketDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(ticket.title)
-                        .font(.title2.weight(.semibold))
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(ticket.title)
+                            .font(.title2.weight(.semibold))
+
+                        Spacer(minLength: 12)
+
+                        ticketActions(for: ticket)
+                    }
 
                     if ticket.detailsText.isEmpty == false {
                         Text(ticket.detailsText)
@@ -312,6 +347,29 @@ struct TicketDetailView: View {
             if phaseState.prompt != promptDraft, phaseState.executionState != .running {
                 promptDraft = phaseState.prompt
             }
+        }
+    }
+
+    @ViewBuilder
+    private func ticketActions(for ticket: Ticket) -> some View {
+        let isRunning = ticket.phaseStates.contains { $0.executionState == .running }
+
+        HStack(spacing: 8) {
+            Button {
+                store.archiveTicket(id: ticket.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+            .disabled(isRunning)
+            .help(isRunning ? "Stop running phases before archiving this ticket" : "Archive Ticket")
+
+            Button(role: .destructive) {
+                deletionTicket = ticket
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(isRunning)
+            .help(isRunning ? "Stop running phases before deleting this ticket" : "Delete Ticket")
         }
     }
 
