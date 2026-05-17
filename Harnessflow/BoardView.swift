@@ -364,9 +364,10 @@ private struct TicketCardView: View, @preconcurrency Equatable {
                                 onComplete()
                             } label: {
                                 Image(systemName: "checkmark.circle")
+                                    .font(.body)
+                                    .frame(width: 16, height: 16)
                             }
                             .buttonStyle(.borderless)
-                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .help("Mark Completed")
                         }
@@ -378,9 +379,12 @@ private struct TicketCardView: View, @preconcurrency Equatable {
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        } else if ticket.currentExecutionState == .idle || ticket.currentExecutionState == .failed {
+                        } else if ticket.currentExecutionState == .failed {
                             Image(systemName: "exclamationmark.circle")
-                                .foregroundStyle(ticket.currentExecutionState == .failed ? .red : .secondary)
+                                .font(.body)
+                                .frame(width: 16, height: 16)
+                                .foregroundStyle(.red)
+                                .help("Phase Failed")
                         }
                     }
                 }
