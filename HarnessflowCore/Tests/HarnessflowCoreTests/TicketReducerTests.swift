@@ -533,6 +533,58 @@ struct TicketReducerTests {
         ])
     }
 
+    @Test
+    func autoShiftKeepsReviewOpenWhenFinalAdjustmentsAreRequired() {
+        var ticket = Ticket(title: "Auto review", column: .review, autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .review,
+            prompt: "Review",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let agentResult = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Findings
+            Needs one more change.
+
+            Final Pass Required: Yes
+
+            ## Final Adjustments
+            - Apply the requested fix.
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: Date(timeIntervalSince1970: 5_000),
+            exitCode: 0
+        )
+        var review = ticket.phaseState(for: .review)
+        review.executionState = .running
+        ticket.updatePhaseState(review)
+
+        let result = reduce(ticket, event: .agentResultReceived(
+            request: request,
+            result: agentResult,
+            providerKind: .codex,
+            authMethod: .unknown,
+            authMethodDescription: "Unknown",
+            didFallbackFromSubscription: false
+        ))
+        let reviewState = result.ticket.phaseState(for: .review)
+
+        #expect(result.ticket.column == .review)
+        #expect(result.ticket.completedAt == nil)
+        #expect(reviewState.executionState == .completed)
+        #expect(reviewState.needsFinalAdjustments)
+        #expect(reviewState.runs.count == 1)
+        #expect(result.commands == [
+            .completeLiveOutput(request: request, result: agentResult),
+            .persistTicket(result.ticket),
+        ])
+    }
+
     private var phaseSettings: AppSettings {
         AppSettings(
             codexExecutablePath: "/opt/homebrew/bin/codex",

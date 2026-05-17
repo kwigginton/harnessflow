@@ -362,7 +362,7 @@ public struct TicketReducer: Sendable {
         updated.updatedAt = result.completedAt
 
         var commands: [TicketCommand] = [.completeLiveOutput(request: request, result: result)]
-        if finalSuccess, updated.autoShiftOnSuccess {
+        if finalSuccess, updated.autoShiftOnSuccess, shouldAutoShiftAfterSuccess(updated, phase: request.phase) {
             let shifted = try shiftCompletedTicket(updated, movedAt: result.completedAt)
             updated = shifted.ticket
             commands.append(contentsOf: shifted.commands)
@@ -370,6 +370,14 @@ public struct TicketReducer: Sendable {
             commands.append(.persistTicket(updated))
         }
         return TicketReducerResult(ticket: updated, commands: commands)
+    }
+
+    private func shouldAutoShiftAfterSuccess(_ ticket: Ticket, phase: TicketPhase) -> Bool {
+        guard phase == .review else {
+            return true
+        }
+
+        return ReviewFinalPassContract.requiresFinalPass(in: ticket.phaseState(for: .review).deliverableMarkdown) == false
     }
 
     private func applyFailure(
