@@ -130,6 +130,8 @@ public enum PhasePromptTemplateLoader {
 
     Turn the ticket and research corpus into a decision-complete implementation plan.
 
+    Before producing the plan, identify whether any product, UX, persistence, provider, workflow, or compatibility decision materially affects the implementation. If a material decision is unresolved, do not guess, do not record it as an assumption, and do not return a final deliverable. Ask the user for the decision using the shared Agent Q&A contract, then continue planning after the answer is provided.
+
     Produce a concise markdown deliverable with:
     - Goal and success criteria
     - Implementation approach

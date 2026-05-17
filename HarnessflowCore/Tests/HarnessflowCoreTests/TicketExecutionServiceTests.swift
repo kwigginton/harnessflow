@@ -113,6 +113,22 @@ struct TicketExecutionServiceTests {
     }
 
     @Test
+    func planRequestInstructsAgentToAskQuestionsForMaterialDecisions() throws {
+        let settings = AppSettings(
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(plan: "codex-plan"),
+            phasePrompts: PhasePromptTemplateLoader.bundledDefaults()
+        )
+        let ticket = Ticket(title: "Ambiguous plan", column: .plan)
+
+        let request = try TicketExecutionService().makeRequest(for: ticket, settings: settings)
+
+        #expect(request.prompt.contains("If a material decision is unresolved, do not guess"))
+        #expect(request.prompt.contains("shared Agent Q&A contract"))
+        #expect(request.prompt.contains(AgentQuestionContract.startMarker))
+    }
+
+    @Test
     func requestPrefersExplicitWorkingDirectoryOverride() throws {
         var ticket = Ticket(title: "Execution", column: .plan)
         var phaseState = ticket.phaseState(for: .plan)
