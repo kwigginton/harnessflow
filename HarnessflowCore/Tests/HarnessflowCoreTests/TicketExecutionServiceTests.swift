@@ -33,8 +33,28 @@ struct TicketExecutionServiceTests {
             "--dangerously-bypass-approvals-and-sandbox",
             "-",
         ])
-        #expect(invocation.environment["PATH"] == "/usr/bin")
+        #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
         #expect(invocation.environment["OPENAI_API_KEY"] == "sk-test")
+    }
+
+    @Test
+    func codexProviderInvocationAddsHomebrewPathsForGUIAppLaunches() {
+        let provider = CodexCLIProvider(executablePath: "/opt/homebrew/bin/codex")
+        let request = AgentRunRequest(
+            ticketID: UUID(),
+            phase: .research,
+            prompt: "Research prompt",
+            model: "codex",
+            workingDirectory: "/tmp/workdir"
+        )
+
+        let invocation = provider.makeInvocation(
+            for: request,
+            baseEnvironment: ["PATH": "/usr/bin"]
+        )
+
+        #expect(invocation.environment["PATH"]?.contains("/opt/homebrew/bin") == true)
+        #expect(invocation.environment["PATH"]?.contains("/usr/local/bin") == true)
     }
 
     @Test
@@ -65,7 +85,7 @@ struct TicketExecutionServiceTests {
             "--permission-mode", "bypassPermissions",
         ])
         #expect(invocation.currentDirectory == "/tmp/project")
-        #expect(invocation.environment["PATH"] == "/usr/bin")
+        #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
         #expect(invocation.environment["ANTHROPIC_API_KEY"] == "sk-ant-test")
     }
 

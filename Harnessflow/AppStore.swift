@@ -41,11 +41,58 @@ final class AppStore: ObservableObject {
         }
     }
 
+    struct BoardTicketSummary: Identifiable, Equatable {
+        private static let detailsPreviewLimit = 240
+
+        let id: UUID
+        let projectID: UUID
+        let title: String
+        let detailsPreview: String
+        let column: TicketPhase
+        let isDone: Bool
+        let completedAt: Date?
+        let updatedAt: Date
+        let currentExecutionState: PhaseExecutionState
+        let needsFinalAdjustments: Bool
+
+        init(ticket: Ticket, projectID: UUID) {
+            let currentState = ticket.phaseState(for: ticket.column)
+            self.id = ticket.id
+            self.projectID = projectID
+            self.title = ticket.title
+            self.detailsPreview = Self.makeDetailsPreview(from: ticket.detailsText)
+            self.column = ticket.column
+            self.isDone = ticket.isDone
+            self.completedAt = ticket.completedAt
+            self.updatedAt = ticket.updatedAt
+            self.currentExecutionState = currentState.executionState
+            self.needsFinalAdjustments = currentState.needsFinalAdjustments
+        }
+
+        private static func makeDetailsPreview(from detailsText: String) -> String {
+            let collapsed = detailsText
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+
+            guard collapsed.count > detailsPreviewLimit else {
+                return collapsed
+            }
+
+            return String(collapsed.prefix(detailsPreviewLimit)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+        }
+    }
+
     struct DirectoryBoardRow: Identifiable, Equatable {
         let project: ProjectRecord
-        let tickets: [Ticket]
+        let activeTicketsByPhase: [TicketPhase: [BoardTicketSummary]]
+        let doneTickets: [BoardTicketSummary]
+        let ticketCount: Int
 
         var id: UUID { project.id }
+
+        func tickets(for phase: TicketPhase) -> [BoardTicketSummary] {
+            activeTicketsByPhase[phase] ?? []
+        }
     }
 
     struct ArchivedDirectorySummary: Identifiable, Equatable {
@@ -60,6 +107,33 @@ final class AppStore: ObservableObject {
         let reviewCount: Int
 
         var id: UUID { project.id }
+    }
+
+    @MainActor
+    final class TicketSelectionState: ObservableObject {
+        @Published private(set) var selectedTicketID: UUID?
+        @Published private(set) var selectedTicketSummary: BoardTicketSummary?
+        @Published private(set) var selectedTicketDetail: Ticket?
+
+        func select(id: UUID?, summary: BoardTicketSummary?) {
+            selectedTicketID = id
+            selectedTicketSummary = summary
+            selectedTicketDetail = nil
+        }
+
+        func setDetail(_ ticket: Ticket?) {
+            guard selectedTicketID == ticket?.id else {
+                return
+            }
+
+            selectedTicketDetail = ticket
+        }
+
+        func clear() {
+            selectedTicketID = nil
+            selectedTicketSummary = nil
+            selectedTicketDetail = nil
+        }
     }
 
     private struct LivePhaseOutputKey: Hashable {
@@ -78,10 +152,11 @@ final class AppStore: ObservableObject {
 
     @Published private(set) var projects: [ProjectRecord] = []
     @Published private(set) var tickets: [Ticket] = []
+    @Published private(set) var directoryBoardRows: [DirectoryBoardRow] = []
     @Published private(set) var archivedDirectorySummaries: [ArchivedDirectorySummary] = []
     @Published private(set) var settings: AppSettings
     @Published private(set) var selectedProjectID: UUID?
-    @Published var selectedTicketID: UUID?
+    let selection = TicketSelectionState()
     @Published var errorMessage: String?
     @Published private(set) var errorRecoveryAction: ErrorRecoveryAction?
     @Published private(set) var hasOpenAIAPIToken = false
@@ -93,6 +168,7 @@ final class AppStore: ObservableObject {
     private var pendingLiveOutputChunks: [LivePhaseOutputKey: PendingLiveOutput] = [:]
     private var liveOutputFlushTasks: [LivePhaseOutputKey: Task<Void, Never>] = [:]
     private var ticketProjectIDs: [UUID: UUID] = [:]
+    private var selectedDetailLoadTask: Task<Void, Never>?
 
     private let persistenceStore: PersistenceStore
     private let credentialsStore: KeychainTokenStore
@@ -130,8 +206,12 @@ final class AppStore: ObservableObject {
         refreshCodexLoginStatus()
     }
 
+    var selectedTicketID: UUID? {
+        selection.selectedTicketID
+    }
+
     var selectedTicket: Ticket? {
-        tickets.first(where: { $0.id == selectedTicketID })
+        selection.selectedTicketDetail
     }
 
     var selectedProject: ProjectRecord? {
@@ -140,17 +220,6 @@ final class AppStore: ObservableObject {
 
     var hasSelectedProject: Bool {
         selectedProject != nil
-    }
-
-    var directoryBoardRows: [DirectoryBoardRow] {
-        projects.map { project in
-            DirectoryBoardRow(
-                project: project,
-                tickets: tickets
-                    .filter { ticketProjectIDs[$0.id] == project.id }
-                    .sorted { $0.updatedAt > $1.updatedAt }
-            )
-        }
     }
 
     func ticket(withID id: UUID) -> Ticket? {
@@ -162,7 +231,22 @@ final class AppStore: ObservableObject {
     }
 
     func selectTicket(_ id: UUID?) {
-        selectedTicketID = id
+        selectedDetailLoadTask?.cancel()
+
+        guard let id else {
+            selection.clear()
+            return
+        }
+
+        selection.select(id: id, summary: boardTicketSummary(withID: id))
+        selectedDetailLoadTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, Task.isCancelled == false, self.selection.selectedTicketID == id else {
+                return
+            }
+
+            self.selection.setDetail(self.ticket(withID: id))
+        }
     }
 
     func selectProject(_ id: UUID) {
@@ -197,6 +281,11 @@ final class AppStore: ObservableObject {
             }
             tickets = loadedTickets.sorted { $0.updatedAt > $1.updatedAt }
             ticketProjectIDs = loadedTicketProjectIDs
+            directoryBoardRows = makeDirectoryBoardRows(
+                projects: projects,
+                tickets: tickets,
+                ticketProjectIDs: ticketProjectIDs
+            )
             archivedDirectorySummaries = try archivedProjects.map { project in
                 makeArchivedDirectorySummary(
                     project: project,
@@ -204,8 +293,12 @@ final class AppStore: ObservableObject {
                 )
             }
 
-            if let selectedTicketID, tickets.contains(where: { $0.id == selectedTicketID }) == false {
-                self.selectedTicketID = nil
+            if let selectedTicketID {
+                if tickets.contains(where: { $0.id == selectedTicketID }) {
+                    selectTicket(selectedTicketID)
+                } else {
+                    selectTicket(nil)
+                }
             }
             hasOpenAIAPIToken = try credentialsStore.loadToken()?.isEmpty == false
             hasAnthropicAPIToken = try anthropicCredentialsStore.loadToken()?.isEmpty == false
@@ -367,7 +460,7 @@ final class AppStore: ObservableObject {
                 autoShiftOnSuccess: autoShiftOnSuccess
             )
             reload()
-            selectedTicketID = ticket.id
+            selectTicket(ticket.id)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -414,7 +507,7 @@ final class AppStore: ObservableObject {
         do {
             _ = try persistenceStore.archiveProject(projectID: projectID)
             if let selectedTicketID, ticketProjectIDs[selectedTicketID] == projectID {
-                self.selectedTicketID = nil
+                selectTicket(nil)
             }
             if selectedProjectID == projectID {
                 try persistenceStore.saveSelectedProjectID(nil)
@@ -1300,7 +1393,33 @@ final class AppStore: ObservableObject {
         if let index = tickets.firstIndex(where: { $0.id == updatedTicket.id }) {
             tickets[index] = updatedTicket
             tickets.sort { $0.updatedAt > $1.updatedAt }
+            directoryBoardRows = makeDirectoryBoardRows(
+                projects: projects,
+                tickets: tickets,
+                ticketProjectIDs: ticketProjectIDs
+            )
+            if selection.selectedTicketID == updatedTicket.id {
+                selectTicket(updatedTicket.id)
+            }
         }
+    }
+
+    private func boardTicketSummary(withID id: UUID) -> BoardTicketSummary? {
+        for row in directoryBoardRows {
+            if let summary = TicketPhase.allCases.lazy.compactMap({ row.tickets(for: $0).first(where: { $0.id == id }) }).first {
+                return summary
+            }
+
+            if let summary = row.doneTickets.first(where: { $0.id == id }) {
+                return summary
+            }
+        }
+
+        guard let ticket = ticket(withID: id), let projectID = ticketProjectIDs[id] else {
+            return nil
+        }
+
+        return BoardTicketSummary(ticket: ticket, projectID: projectID)
     }
 
     private func project(forTicketID ticketID: UUID) -> ProjectRecord? {
@@ -1338,6 +1457,40 @@ final class AppStore: ObservableObject {
             implementCount: activeTickets.filter { $0.column == .implement }.count,
             reviewCount: activeTickets.filter { $0.column == .review }.count
         )
+    }
+
+    private func makeDirectoryBoardRows(
+        projects: [ProjectRecord],
+        tickets: [Ticket],
+        ticketProjectIDs: [UUID: UUID]
+    ) -> [DirectoryBoardRow] {
+        let summariesByProject = Dictionary(grouping: tickets.compactMap { ticket -> BoardTicketSummary? in
+            guard let projectID = ticketProjectIDs[ticket.id] else {
+                return nil
+            }
+            return BoardTicketSummary(ticket: ticket, projectID: projectID)
+        }, by: \.projectID)
+
+        return projects.map { project in
+            let projectTickets = summariesByProject[project.id] ?? []
+            let activeTickets = projectTickets
+                .filter { $0.isDone == false }
+                .sorted { $0.updatedAt > $1.updatedAt }
+            let doneTickets = projectTickets
+                .filter(\.isDone)
+                .sorted { lhs, rhs in
+                    let lhsDate = lhs.completedAt ?? lhs.updatedAt
+                    let rhsDate = rhs.completedAt ?? rhs.updatedAt
+                    return lhsDate > rhsDate
+                }
+
+            return DirectoryBoardRow(
+                project: project,
+                activeTicketsByPhase: Dictionary(grouping: activeTickets, by: \.column),
+                doneTickets: doneTickets,
+                ticketCount: projectTickets.count
+            )
+        }
     }
 
     func performErrorRecoveryAction() {

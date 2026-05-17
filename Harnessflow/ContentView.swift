@@ -16,7 +16,7 @@ struct ContentView: View {
             BoardView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } trailing: {
-            TicketDetailView(ticket: store.selectedTicket)
+            TicketDetailContainer(selection: store.selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -63,6 +63,17 @@ struct ContentView: View {
             message: {
                 Text(store.errorMessage ?? "")
             }
+        )
+    }
+}
+
+private struct TicketDetailContainer: View {
+    @ObservedObject var selection: AppStore.TicketSelectionState
+
+    var body: some View {
+        TicketDetailView(
+            summary: selection.selectedTicketSummary,
+            ticket: selection.selectedTicketDetail
         )
     }
 }

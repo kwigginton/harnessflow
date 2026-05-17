@@ -42,6 +42,7 @@ struct BoardView: View {
                             row: row,
                             columns: columns,
                             availableWidth: proxy.size.width,
+                            selection: store.selection,
                             onCreateTicket: {
                                 ticketProject = row.project
                             },
@@ -107,6 +108,7 @@ private struct DirectoryBoardRowView: View {
     let row: AppStore.DirectoryBoardRow
     let columns: [BoardColumn]
     let availableWidth: CGFloat
+    let selection: AppStore.TicketSelectionState
     let onCreateTicket: () -> Void
     let onRemoveDirectory: () -> Void
 
@@ -141,7 +143,7 @@ private struct DirectoryBoardRowView: View {
 
                 Spacer(minLength: 12)
 
-                Text("\(row.tickets.count)")
+                Text("\(row.ticketCount)")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
 
@@ -163,7 +165,8 @@ private struct DirectoryBoardRowView: View {
                         PhaseColumnView(
                             projectID: row.project.id,
                             column: column,
-                            tickets: tickets(for: column)
+                            tickets: tickets(for: column),
+                            selection: selection
                         )
                     }
                 }
@@ -182,18 +185,12 @@ private struct DirectoryBoardRowView: View {
         )
     }
 
-    private func tickets(for column: BoardColumn) -> [Ticket] {
+    private func tickets(for column: BoardColumn) -> [AppStore.BoardTicketSummary] {
         switch column {
         case let .phase(phase):
-            return row.tickets.filter { $0.isDone == false && $0.column == phase }
+            return row.tickets(for: phase)
         case .done:
-            return row.tickets
-                .filter(\.isDone)
-                .sorted { lhs, rhs in
-                    let lhsDate = lhs.completedAt ?? lhs.updatedAt
-                    let rhsDate = rhs.completedAt ?? rhs.updatedAt
-                    return lhsDate > rhsDate
-                }
+            return row.doneTickets
         }
     }
 }
@@ -202,7 +199,8 @@ private struct PhaseColumnView: View {
     @EnvironmentObject private var store: AppStore
     let projectID: UUID
     let column: BoardColumn
-    let tickets: [Ticket]
+    let tickets: [AppStore.BoardTicketSummary]
+    @ObservedObject var selection: AppStore.TicketSelectionState
     @State private var isTargeted = false
 
     private var dropPhase: TicketPhase? {
@@ -230,7 +228,20 @@ private struct PhaseColumnView: View {
                         .frame(maxWidth: .infinity, minHeight: 72)
                 } else {
                     ForEach(tickets) { ticket in
-                        TicketCardView(projectID: projectID, ticket: ticket)
+                        TicketCardView(
+                            ticket: ticket,
+                            isSelected: selection.selectedTicketID == ticket.id,
+                            onSelect: {
+                                store.selectTicket(ticket.id)
+                            },
+                            onComplete: {
+                                store.completeTicket(id: ticket.id, projectID: projectID)
+                            },
+                            onShiftForward: {
+                                store.shiftTicketForward(id: ticket.id, projectID: projectID)
+                            }
+                        )
+                        .equatable()
                     }
                 }
             }
@@ -271,21 +282,28 @@ private struct PhaseColumnView: View {
     }
 }
 
-private struct TicketCardView: View {
-    @EnvironmentObject private var store: AppStore
-    let projectID: UUID
-    let ticket: Ticket
+@MainActor
+private struct TicketCardView: View, @preconcurrency Equatable {
+    let ticket: AppStore.BoardTicketSummary
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onComplete: () -> Void
+    let onShiftForward: () -> Void
 
-    private var currentState: TicketPhaseState {
-        ticket.phaseState(for: ticket.column)
+    static func == (lhs: TicketCardView, rhs: TicketCardView) -> Bool {
+        lhs.ticket == rhs.ticket && lhs.isSelected == rhs.isSelected
+    }
+
+    private var isWaitingForFinalAdjustments: Bool {
+        ticket.needsFinalAdjustments && ticket.currentExecutionState == .completed
     }
 
     private var statusColor: Color {
-        if currentState.needsFinalAdjustments {
+        if isWaitingForFinalAdjustments {
             return .orange
         }
 
-        switch currentState.executionState {
+        switch ticket.currentExecutionState {
         case .idle:
             return .secondary
         case .running:
@@ -300,11 +318,11 @@ private struct TicketCardView: View {
     }
 
     private var statusTitle: String {
-        currentState.needsFinalAdjustments ? "Final Adjustments" : currentState.executionState.displayTitle
+        isWaitingForFinalAdjustments ? "Final Adjustments" : ticket.currentExecutionState.displayTitle
     }
 
     private var showsShiftButton: Bool {
-        ticket.isDone == false && currentState.executionState == .completed
+        ticket.isDone == false && ticket.currentExecutionState == .completed
     }
 
     private var showsCompleteButton: Bool {
@@ -314,7 +332,7 @@ private struct TicketCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                store.selectTicket(ticket.id)
+                onSelect()
             } label: {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(ticket.title)
@@ -323,8 +341,8 @@ private struct TicketCardView: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if ticket.detailsText.isEmpty == false {
-                        Text(ticket.detailsText)
+                    if ticket.detailsPreview.isEmpty == false {
+                        Text(ticket.detailsPreview)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -343,7 +361,7 @@ private struct TicketCardView: View {
 
                         if showsCompleteButton {
                             Button {
-                                store.completeTicket(id: ticket.id, projectID: projectID)
+                                onComplete()
                             } label: {
                                 Image(systemName: "checkmark.circle")
                             }
@@ -355,21 +373,21 @@ private struct TicketCardView: View {
 
                         if showsShiftButton {
                             Button("Shift >") {
-                                store.shiftTicketForward(id: ticket.id, projectID: projectID)
+                                onShiftForward()
                             }
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        } else if currentState.executionState == .idle || currentState.executionState == .failed {
+                        } else if ticket.currentExecutionState == .idle || ticket.currentExecutionState == .failed {
                             Image(systemName: "exclamationmark.circle")
-                                .foregroundStyle(currentState.executionState == .failed ? .red : .secondary)
+                                .foregroundStyle(ticket.currentExecutionState == .failed ? .red : .secondary)
                         }
                     }
                 }
                 .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(store.selectedTicketID == ticket.id ? Color.accentColor.opacity(0.15) : Color(nsColor: .textBackgroundColor))
+                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(nsColor: .textBackgroundColor))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)

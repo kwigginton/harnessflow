@@ -93,6 +93,38 @@ struct ClaudeCLIInvocation: Equatable, Sendable {
     var currentDirectory: String
 }
 
+enum AgentProviderEnvironment {
+    private static let fallbackPathComponents = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+
+    static func normalized(
+        baseEnvironment: [String: String],
+        overrides: [String: String]
+    ) -> [String: String] {
+        var environment = baseEnvironment.merging(overrides) { _, override in override }
+        environment["PATH"] = normalizedPath(environment["PATH"])
+        return environment
+    }
+
+    private static func normalizedPath(_ path: String?) -> String {
+        var seen = Set<String>()
+        let pathComponents = (path ?? "")
+            .split(separator: ":")
+            .map(String.init)
+            .filter { $0.isEmpty == false }
+
+        return (pathComponents + fallbackPathComponents)
+            .filter { seen.insert($0).inserted }
+            .joined(separator: ":")
+    }
+}
+
 public protocol AgentProvider: Sendable {
     func run(
         request: AgentRunRequest,
@@ -226,7 +258,10 @@ public struct ClaudeCLIProvider: AgentProvider {
                 "--model", request.model,
                 "--permission-mode", "bypassPermissions",
             ] + extraArguments,
-            environment: baseEnvironment.merging(environmentOverrides) { _, override in override },
+            environment: AgentProviderEnvironment.normalized(
+                baseEnvironment: baseEnvironment,
+                overrides: environmentOverrides
+            ),
             currentDirectory: request.workingDirectory
         )
     }
@@ -358,6 +393,10 @@ public struct CodexCLIProvider: AgentProvider {
 
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = ["login", "status"]
+        process.environment = AgentProviderEnvironment.normalized(
+            baseEnvironment: ProcessInfo.processInfo.environment,
+            overrides: environmentOverrides
+        )
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
@@ -403,7 +442,10 @@ public struct CodexCLIProvider: AgentProvider {
                 "--dangerously-bypass-approvals-and-sandbox",
                 "-",
             ] + extraArguments,
-            environment: baseEnvironment.merging(environmentOverrides) { _, override in override }
+            environment: AgentProviderEnvironment.normalized(
+                baseEnvironment: baseEnvironment,
+                overrides: environmentOverrides
+            )
         )
     }
 

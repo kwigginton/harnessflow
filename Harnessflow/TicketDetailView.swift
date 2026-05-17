@@ -4,9 +4,12 @@ import HarnessflowCore
 struct TicketDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore
+    let summary: AppStore.BoardTicketSummary?
     let ticket: Ticket?
     @State private var promptDraft = ""
     @State private var expandedOutputPhases = Set<TicketPhase>()
+    @State private var isLatestResultExpanded = false
+    @State private var isRunHistoryExpanded = false
     @State private var selectedChoices: [String: String] = [:]
     @State private var freeformAnswers: [String: String] = [:]
 
@@ -20,6 +23,8 @@ struct TicketDetailView: View {
 
             if let ticket {
                 detail(for: ticket)
+            } else if let summary {
+                loadingDetail(for: summary)
             } else {
                 ContentUnavailableView(
                     "Select a Ticket",
@@ -30,6 +35,41 @@ struct TicketDetailView: View {
                 .multilineTextAlignment(.center)
                 .padding(20)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func loadingDetail(for summary: AppStore.BoardTicketSummary) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(summary.title)
+                        .font(.title2.weight(.semibold))
+
+                    if summary.detailsPreview.isEmpty == false {
+                        Text(summary.detailsPreview)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 10) {
+                        PhaseLabel(phase: summary.column, font: .callout.weight(.semibold), iconSize: 20)
+                        StatusBadge(state: summary.currentExecutionState)
+                        Text("Model: \(store.settings.phaseModels.model(for: summary.column))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading ticket detail...")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -171,17 +211,22 @@ struct TicketDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        if phaseState.capturedOutput.isEmpty == false {
-                            OutputBlock(title: "Output", text: phaseState.capturedOutput)
-                        }
-
-                        if phaseState.capturedError.isEmpty == false {
-                            OutputBlock(title: "Error", text: phaseState.capturedError)
-                        }
-
                         if phaseState.capturedOutput.isEmpty && phaseState.capturedError.isEmpty {
                             Text("No execution result captured for this phase yet.")
                                 .foregroundStyle(.secondary)
+                        } else {
+                            DisclosureGroup("Captured Output", isExpanded: $isLatestResultExpanded) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    if phaseState.capturedOutput.isEmpty == false {
+                                        OutputBlock(title: "Output", text: phaseState.capturedOutput)
+                                    }
+
+                                    if phaseState.capturedError.isEmpty == false {
+                                        OutputBlock(title: "Error", text: phaseState.capturedError)
+                                    }
+                                }
+                                .padding(.top, 8)
+                            }
                         }
 
                         if phaseState.executionState == .running {
@@ -209,28 +254,33 @@ struct TicketDetailView: View {
                             Text("No runs yet.")
                                 .foregroundStyle(.secondary)
                         } else {
-                            ForEach(phaseState.runs.reversed()) { run in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(runStatusTitle(run))
-                                            .font(.subheadline.weight(.semibold))
-                                        Spacer()
-                                        Text(run.completedAt.formatted(date: .numeric, time: .shortened))
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
+                            DisclosureGroup("\(phaseState.runs.count) run\(phaseState.runs.count == 1 ? "" : "s")", isExpanded: $isRunHistoryExpanded) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    ForEach(phaseState.runs.reversed()) { run in
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            HStack {
+                                                Text(runStatusTitle(run))
+                                                    .font(.subheadline.weight(.semibold))
+                                                Spacer()
+                                                Text(run.completedAt.formatted(date: .numeric, time: .shortened))
+                                                    .font(.footnote)
+                                                    .foregroundStyle(.secondary)
+                                            }
+
+                                            Text("Model: \(run.model)")
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+
+                                            Text(run.prompt)
+                                                .font(.footnote.monospaced())
+                                                .lineLimit(3)
+                                        }
+                                        .padding(10)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
-
-                                    Text("Model: \(run.model)")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-
-                                    Text(run.prompt)
-                                        .font(.footnote.monospaced())
-                                        .lineLimit(3)
                                 }
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .padding(.top, 8)
                             }
                         }
                     }
@@ -245,11 +295,15 @@ struct TicketDetailView: View {
             promptDraft = phaseState.prompt
             resetAnswers(from: phaseState.pendingQuestions)
             expandedOutputPhases = []
+            isLatestResultExpanded = false
+            isRunHistoryExpanded = false
         }
         .onChange(of: ticket.id) { _, _ in
             promptDraft = ticket.phaseState(for: ticket.column).prompt
             resetAnswers(from: ticket.phaseState(for: ticket.column).pendingQuestions)
             expandedOutputPhases = []
+            isLatestResultExpanded = false
+            isRunHistoryExpanded = false
         }
         .onChange(of: phaseState.pendingQuestions?.id) { _, _ in
             resetAnswers(from: phaseState.pendingQuestions)

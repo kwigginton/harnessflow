@@ -54,11 +54,12 @@ final class PersistenceStore {
     func loadTickets(projectID: UUID) throws -> [Ticket] {
         try bootstrapIfNeeded()
         let descriptor = FetchDescriptor<TicketEntity>(
+            predicate: #Predicate<TicketEntity> { ticket in
+                ticket.project?.id == projectID
+            },
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
-        return try context.fetch(descriptor)
-            .filter { $0.project?.id == projectID }
-            .map { $0.toDomain() }
+        return try context.fetch(descriptor).map { $0.toDomain() }
     }
 
     func loadSettings() throws -> AppSettings {
