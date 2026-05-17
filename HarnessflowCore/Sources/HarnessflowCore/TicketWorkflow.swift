@@ -84,4 +84,11 @@ public struct TicketWorkflow: Sendable {
             throw TicketWorkflowError.reviewFinalPassUndetermined
         }
     }
+
+    public func complete(_ ticket: Ticket, completedAt: Date = .now) -> Ticket {
+        var completedTicket = ticket
+        completedTicket.completedAt = completedAt
+        completedTicket.updatedAt = completedAt
+        return completedTicket
+    }
 }

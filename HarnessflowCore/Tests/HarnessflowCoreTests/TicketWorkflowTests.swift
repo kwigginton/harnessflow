@@ -146,6 +146,59 @@ struct TicketWorkflowTests {
     }
 
     @Test
+    func manualCompletionWorksFromEveryPhaseWithoutPhaseCompletion() throws {
+        let completedAt = Date(timeIntervalSince1970: 2_000)
+
+        for phase in TicketPhase.allCases {
+            let ticket = Ticket(title: "Archive", column: phase)
+            let completed = TicketWorkflow().complete(ticket, completedAt: completedAt)
+
+            #expect(completed.completedAt == completedAt)
+            #expect(completed.updatedAt == completedAt)
+            #expect(completed.column == phase)
+        }
+    }
+
+    @Test
+    func manualCompletionPreservesPhaseSnapshotsAndRunHistory() throws {
+        let run = PhaseRun(
+            phase: .plan,
+            model: "codex",
+            prompt: "Plan it",
+            output: "planned",
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            success: true
+        )
+        var ticket = Ticket(title: "Keep history", column: .plan)
+        var plan = ticket.phaseState(for: .plan)
+        plan.executionState = .awaitingInput
+        plan.lastModel = "codex"
+        plan.capturedOutput = "partial output"
+        plan.deliverableMarkdown = "## Plan"
+        plan.pendingQuestions = AgentQuestionSet(questions: [
+            AgentQuestion(id: "decision", prompt: "Choose")
+        ])
+        plan.pendingAnswers = [AgentAnswer(questionID: "decision", choiceID: "a")]
+        plan.runs = [run]
+        ticket.updatePhaseState(plan)
+
+        let completedAt = Date(timeIntervalSince1970: 3_000)
+        let completed = TicketWorkflow().complete(ticket, completedAt: completedAt)
+        let completedPlan = completed.phaseState(for: .plan)
+
+        #expect(completed.completedAt == completedAt)
+        #expect(completedPlan.executionState == .awaitingInput)
+        #expect(completedPlan.lastModel == "codex")
+        #expect(completedPlan.capturedOutput == "partial output")
+        #expect(completedPlan.deliverableMarkdown == "## Plan")
+        #expect(completedPlan.pendingQuestions == plan.pendingQuestions)
+        #expect(completedPlan.pendingAnswers == plan.pendingAnswers)
+        #expect(completedPlan.runs == [run])
+    }
+
+    @Test
     func moveClearsDoneTimestamp() throws {
         var ticket = Ticket(title: "Reopened", column: .plan, completedAt: .now)
         var plan = ticket.phaseState(for: .plan)

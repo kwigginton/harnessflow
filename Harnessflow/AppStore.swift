@@ -481,6 +481,31 @@ final class AppStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func completeTicket(id: UUID, projectID: UUID) -> Bool {
+        guard let ticket = tickets.first(where: { $0.id == id }) else {
+            return false
+        }
+        guard ticketProjectIDs[id] == projectID else {
+            errorMessage = "Tickets can only be completed within their working directory row."
+            return false
+        }
+        guard ticket.phaseStates.contains(where: { $0.executionState == .running }) == false else {
+            errorMessage = "Stop running phases before marking this ticket completed."
+            return false
+        }
+
+        do {
+            let completed = workflow.complete(ticket)
+            try persistenceStore.upsert(ticket: completed, projectID: projectID)
+            reload()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func saveSettings(
         codexExecutablePath: String,
         defaultWorkingDirectory: String,

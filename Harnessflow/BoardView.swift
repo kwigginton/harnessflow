@@ -307,6 +307,10 @@ private struct TicketCardView: View {
         ticket.isDone == false && currentState.executionState == .completed
     }
 
+    private var showsCompleteButton: Bool {
+        ticket.isDone == false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
@@ -336,6 +340,18 @@ private struct TicketCardView: View {
                             .foregroundStyle(statusColor)
 
                         Spacer()
+
+                        if showsCompleteButton {
+                            Button {
+                                store.completeTicket(id: ticket.id, projectID: projectID)
+                            } label: {
+                                Image(systemName: "checkmark.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .help("Mark Completed")
+                        }
 
                         if showsShiftButton {
                             Button("Shift >") {
