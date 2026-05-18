@@ -56,10 +56,8 @@ private struct GeneralSettingsPage: View {
     @State private var selectedProviderKind: AgentProviderKind = .codex
     @State private var codexExecutablePath = ""
     @State private var claudeExecutablePath = ""
-    @State private var researchModel = ""
-    @State private var planModel = ""
-    @State private var implementModel = ""
-    @State private var reviewModel = ""
+    @State private var codexPhaseModels = PhaseModelSelection()
+    @State private var claudePhaseModels = PhaseModelSelection.claudeDefaults
     @State private var researchPrompt = ""
     @State private var planPrompt = ""
     @State private var implementPrompt = ""
@@ -88,10 +86,14 @@ private struct GeneralSettingsPage: View {
             }
 
             Section("Per-Phase Models") {
-                TextField("Research model", text: $researchModel)
-                TextField("Plan model", text: $planModel)
-                TextField("Implement model", text: $implementModel)
-                TextField("Review model", text: $reviewModel)
+                TextField("Research model", text: modelBinding(for: .research))
+                TextField("Plan model", text: modelBinding(for: .plan))
+                TextField("Implement model", text: modelBinding(for: .implement))
+                TextField("Review model", text: modelBinding(for: .review))
+
+                Text(modelSelectionHelpText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Per-Phase Base Prompts") {
@@ -123,10 +125,10 @@ private struct GeneralSettingsPage: View {
                             claudeExecutablePath: claudeExecutablePath,
                             defaultWorkingDirectory: store.settings.defaultWorkingDirectory,
                             codexAuthStrategy: store.settings.codexAuthStrategy,
-                            researchModel: researchModel,
-                            planModel: planModel,
-                            implementModel: implementModel,
-                            reviewModel: reviewModel,
+                            claudeAuthMode: store.settings.claudeAuthMode,
+                            claudePermissionMode: store.settings.claudePermissionMode,
+                            codexPhaseModels: codexPhaseModels,
+                            claudePhaseModels: claudePhaseModels,
                             researchPrompt: researchPrompt,
                             planPrompt: planPrompt,
                             implementPrompt: implementPrompt,
@@ -152,10 +154,8 @@ private struct GeneralSettingsPage: View {
         selectedProviderKind = store.settings.selectedProviderKind
         codexExecutablePath = store.settings.codexExecutablePath
         claudeExecutablePath = store.settings.claudeExecutablePath
-        researchModel = store.settings.phaseModels.research
-        planModel = store.settings.phaseModels.plan
-        implementModel = store.settings.phaseModels.implement
-        reviewModel = store.settings.phaseModels.review
+        codexPhaseModels = store.settings.codexPhaseModels
+        claudePhaseModels = store.settings.claudePhaseModels
         researchPrompt = store.settings.phasePrompts.research
         planPrompt = store.settings.phasePrompts.plan
         implementPrompt = store.settings.phasePrompts.implement
@@ -167,6 +167,40 @@ private struct GeneralSettingsPage: View {
         planPrompt = bundledDefaults.plan
         implementPrompt = bundledDefaults.implement
         reviewPrompt = bundledDefaults.review
+    }
+
+    private func modelBinding(for phase: TicketPhase) -> Binding<String> {
+        Binding(
+            get: {
+                switch selectedProviderKind {
+                case .codex:
+                    codexPhaseModels.model(for: phase)
+                case .claude:
+                    claudePhaseModels.model(for: phase)
+                }
+            },
+            set: { newValue in
+                switch selectedProviderKind {
+                case .codex:
+                    var updated = codexPhaseModels
+                    updated.setModel(newValue, for: phase)
+                    codexPhaseModels = updated
+                case .claude:
+                    var updated = claudePhaseModels
+                    updated.setModel(newValue, for: phase)
+                    claudePhaseModels = updated
+                }
+            }
+        )
+    }
+
+    private var modelSelectionHelpText: String {
+        switch selectedProviderKind {
+        case .codex:
+            "Codex and Claude model selections are stored separately, so switching providers does not overwrite your Codex defaults."
+        case .claude:
+            "Claude model selections are stored separately from Codex. Blank or legacy Codex defaults normalize to `sonnet` when you save Claude settings."
+        }
     }
 
     private func promptBinding(for phase: TicketPhase) -> Binding<String> {
@@ -300,10 +334,10 @@ private struct OpenAISettingsPage: View {
                             claudeExecutablePath: store.settings.claudeExecutablePath,
                             defaultWorkingDirectory: store.settings.defaultWorkingDirectory,
                             codexAuthStrategy: selectedStrategy,
-                            researchModel: store.settings.phaseModels.research,
-                            planModel: store.settings.phaseModels.plan,
-                            implementModel: store.settings.phaseModels.implement,
-                            reviewModel: store.settings.phaseModels.review,
+                            claudeAuthMode: store.settings.claudeAuthMode,
+                            claudePermissionMode: store.settings.claudePermissionMode,
+                            codexPhaseModels: store.settings.codexPhaseModels,
+                            claudePhaseModels: store.settings.claudePhaseModels,
                             researchPrompt: store.settings.phasePrompts.research,
                             planPrompt: store.settings.phasePrompts.plan,
                             implementPrompt: store.settings.phasePrompts.implement,
@@ -385,6 +419,8 @@ private struct OpenAISettingsPage: View {
 private struct AnthropicSettingsPage: View {
     @EnvironmentObject private var store: AppStore
     @State private var apiToken = ""
+    @State private var selectedAuthMode: ClaudeAuthMode = .subscription
+    @State private var selectedPermissionMode: ClaudePermissionMode = .bypassPermissions
 
     var body: some View {
         Form {
@@ -393,19 +429,50 @@ private struct AnthropicSettingsPage: View {
                     Text("Claude Authentication")
                         .font(.title3.weight(.semibold))
 
-                    Text("Harnessflow passes this token to Claude as `ANTHROPIC_API_KEY` when it is saved.")
+                    Text("Use `claude auth login` with the Claude.ai account your Team Premium seat was invited with. Switch to API key mode only if you intentionally want Anthropic API auth.")
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
+                Picker("Auth Mode", selection: $selectedAuthMode) {
+                    ForEach(ClaudeAuthMode.allCases) { authMode in
+                        Text(authMode.title)
+                            .tag(authMode)
+                    }
+                }
+
+                Text(selectedAuthMode.summary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Label(apiKeyStatusText, systemImage: apiKeyStatusSymbolName)
+                    .foregroundStyle(apiKeyStatusColor)
+
+                Text("The Claude login and any saved API key are stored outside the Harnessflow database. Subscription mode ignores the saved key.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Permission Mode") {
+                Picker("Permission Mode", selection: $selectedPermissionMode) {
+                    ForEach(ClaudePermissionMode.allCases) { permissionMode in
+                        Text(permissionMode.title)
+                            .tag(permissionMode)
+                    }
+                }
+
+                Text(selectedPermissionMode.summary)
+                    .font(.footnote)
+                    .foregroundStyle(selectedPermissionMode.isRisky ? .orange : .secondary)
+            }
+
+            Section("Anthropic API Key") {
                 SecureField("sk-ant-...", text: $apiToken)
                     .textFieldStyle(.roundedBorder)
 
-                Label(
-                    store.hasAnthropicAPIToken ? "Token saved in Keychain." : "No token saved.",
-                    systemImage: store.hasAnthropicAPIToken ? "checkmark.circle.fill" : "exclamationmark.circle"
-                )
-                .foregroundStyle(store.hasAnthropicAPIToken ? .green : .secondary)
+                Text("Save an Anthropic key only if you want Harnessflow to use API key mode. Otherwise, leave this empty and use the Claude subscription login.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
 
                 Text("The token is stored in the macOS Keychain, not in the Harnessflow database.")
                     .font(.footnote)
@@ -422,6 +489,24 @@ private struct AnthropicSettingsPage: View {
 
                     Spacer()
 
+                    Button("Save Claude Settings") {
+                        store.saveSettings(
+                            selectedProviderKind: store.settings.selectedProviderKind,
+                            codexExecutablePath: store.settings.codexExecutablePath,
+                            claudeExecutablePath: store.settings.claudeExecutablePath,
+                            defaultWorkingDirectory: store.settings.defaultWorkingDirectory,
+                            codexAuthStrategy: store.settings.codexAuthStrategy,
+                            claudeAuthMode: selectedAuthMode,
+                            claudePermissionMode: selectedPermissionMode,
+                            codexPhaseModels: store.settings.codexPhaseModels,
+                            claudePhaseModels: store.settings.claudePhaseModels,
+                            researchPrompt: store.settings.phasePrompts.research,
+                            planPrompt: store.settings.phasePrompts.plan,
+                            implementPrompt: store.settings.phasePrompts.implement,
+                            reviewPrompt: store.settings.phasePrompts.review
+                        )
+                    }
+
                     Button("Save API Key") {
                         store.saveAnthropicAPIToken(apiToken)
                         apiToken = store.loadAnthropicAPIToken()
@@ -431,8 +516,49 @@ private struct AnthropicSettingsPage: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .onAppear {
-            apiToken = store.loadAnthropicAPIToken()
+        .onAppear(perform: loadFromStore)
+    }
+
+    private func loadFromStore() {
+        apiToken = store.loadAnthropicAPIToken()
+        selectedAuthMode = store.settings.claudeAuthMode
+        selectedPermissionMode = store.settings.claudePermissionMode
+    }
+
+    private var apiKeyStatusText: String {
+        switch (selectedAuthMode, store.hasAnthropicAPIToken) {
+        case (.subscription, true):
+            "API key saved in Keychain, but subscription mode ignores it."
+        case (.subscription, false):
+            "Subscription mode is active. No API key is required."
+        case (.apiKey, true):
+            "Anthropic API key saved in Keychain."
+        case (.apiKey, false):
+            "No Anthropic API key saved. Save one to use API-key mode."
+        }
+    }
+
+    private var apiKeyStatusSymbolName: String {
+        switch (selectedAuthMode, store.hasAnthropicAPIToken) {
+        case (.subscription, true):
+            "key.fill"
+        case (.subscription, false):
+            "checkmark.circle.fill"
+        case (.apiKey, true):
+            "checkmark.circle.fill"
+        case (.apiKey, false):
+            "exclamationmark.circle"
+        }
+    }
+
+    private var apiKeyStatusColor: Color {
+        switch (selectedAuthMode, store.hasAnthropicAPIToken) {
+        case (.subscription, _):
+            .secondary
+        case (.apiKey, true):
+            .green
+        case (.apiKey, false):
+            .orange
         }
     }
 }

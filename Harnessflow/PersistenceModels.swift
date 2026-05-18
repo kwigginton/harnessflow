@@ -1999,6 +1999,176 @@ enum HarnessflowSchemaV9: VersionedSchema {
 }
 
 
+enum HarnessflowSchemaV10: VersionedSchema {
+    static let versionIdentifier = Schema.Version(10, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            ProjectEntity.self,
+            TicketEntity.self,
+            PhaseStateEntity.self,
+            PhaseRunEntity.self,
+            SettingsEntity.self,
+        ]
+    }
+
+    typealias ProjectEntity = HarnessflowSchemaV9.ProjectEntity
+    typealias TicketEntity = HarnessflowSchemaV9.TicketEntity
+    typealias PhaseStateEntity = HarnessflowSchemaV9.PhaseStateEntity
+    typealias PhaseRunEntity = HarnessflowSchemaV9.PhaseRunEntity
+
+    @Model
+    final class SettingsEntity {
+        @Attribute(.unique) var key: String
+        var selectedProviderKindRawValue: String = AgentProviderKind.codex.rawValue
+        var codexExecutablePath: String
+        var claudeExecutablePath: String = "/opt/homebrew/bin/claude"
+        var defaultWorkingDirectory: String
+        var selectedProjectID: UUID?
+        var codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue
+        var claudeAuthModeRawValue: String = ClaudeAuthMode.subscription.rawValue
+        var claudePermissionModeRawValue: String = ClaudePermissionMode.bypassPermissions.rawValue
+        var researchModel: String
+        var planModel: String
+        var implementModel: String
+        var reviewModel: String
+        var researchPrompt: String = ""
+        var planPrompt: String = ""
+        var implementPrompt: String = ""
+        var reviewPrompt: String = ""
+
+        init(
+            key: String = "default",
+            selectedProviderKindRawValue: String = AgentProviderKind.codex.rawValue,
+            codexExecutablePath: String,
+            claudeExecutablePath: String = "/opt/homebrew/bin/claude",
+            defaultWorkingDirectory: String,
+            selectedProjectID: UUID? = nil,
+            codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue,
+            claudeAuthModeRawValue: String = ClaudeAuthMode.subscription.rawValue,
+            claudePermissionModeRawValue: String = ClaudePermissionMode.bypassPermissions.rawValue,
+            researchModel: String,
+            planModel: String,
+            implementModel: String,
+            reviewModel: String,
+            researchPrompt: String,
+            planPrompt: String,
+            implementPrompt: String,
+            reviewPrompt: String
+        ) {
+            self.key = key
+            self.selectedProviderKindRawValue = selectedProviderKindRawValue
+            self.codexExecutablePath = codexExecutablePath
+            self.claudeExecutablePath = claudeExecutablePath
+            self.defaultWorkingDirectory = defaultWorkingDirectory
+            self.selectedProjectID = selectedProjectID
+            self.codexAuthStrategyRawValue = codexAuthStrategyRawValue
+            self.claudeAuthModeRawValue = claudeAuthModeRawValue
+            self.claudePermissionModeRawValue = claudePermissionModeRawValue
+            self.researchModel = researchModel
+            self.planModel = planModel
+            self.implementModel = implementModel
+            self.reviewModel = reviewModel
+            self.researchPrompt = researchPrompt
+            self.planPrompt = planPrompt
+            self.implementPrompt = implementPrompt
+            self.reviewPrompt = reviewPrompt
+        }
+    }
+}
+
+
+enum HarnessflowSchemaV11: VersionedSchema {
+    static let versionIdentifier = Schema.Version(11, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            ProjectEntity.self,
+            TicketEntity.self,
+            PhaseStateEntity.self,
+            PhaseRunEntity.self,
+            SettingsEntity.self,
+        ]
+    }
+
+    typealias ProjectEntity = HarnessflowSchemaV10.ProjectEntity
+    typealias TicketEntity = HarnessflowSchemaV10.TicketEntity
+    typealias PhaseStateEntity = HarnessflowSchemaV10.PhaseStateEntity
+    typealias PhaseRunEntity = HarnessflowSchemaV10.PhaseRunEntity
+
+    @Model
+    final class SettingsEntity {
+        @Attribute(.unique) var key: String
+        var selectedProviderKindRawValue: String = AgentProviderKind.codex.rawValue
+        var codexExecutablePath: String
+        var claudeExecutablePath: String = "/opt/homebrew/bin/claude"
+        var defaultWorkingDirectory: String
+        var selectedProjectID: UUID?
+        var codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue
+        var claudeAuthModeRawValue: String = ClaudeAuthMode.subscription.rawValue
+        var claudePermissionModeRawValue: String = ClaudePermissionMode.bypassPermissions.rawValue
+        var researchModel: String
+        var planModel: String
+        var implementModel: String
+        var reviewModel: String
+        var claudeResearchModel: String = ""
+        var claudePlanModel: String = ""
+        var claudeImplementModel: String = ""
+        var claudeReviewModel: String = ""
+        var researchPrompt: String = ""
+        var planPrompt: String = ""
+        var implementPrompt: String = ""
+        var reviewPrompt: String = ""
+
+        init(
+            key: String = "default",
+            selectedProviderKindRawValue: String = AgentProviderKind.codex.rawValue,
+            codexExecutablePath: String,
+            claudeExecutablePath: String = "/opt/homebrew/bin/claude",
+            defaultWorkingDirectory: String,
+            selectedProjectID: UUID? = nil,
+            codexAuthStrategyRawValue: String = CodexAuthStrategy.preferSubscriptionFallbackToAPI.rawValue,
+            claudeAuthModeRawValue: String = ClaudeAuthMode.subscription.rawValue,
+            claudePermissionModeRawValue: String = ClaudePermissionMode.bypassPermissions.rawValue,
+            researchModel: String,
+            planModel: String,
+            implementModel: String,
+            reviewModel: String,
+            claudeResearchModel: String = "",
+            claudePlanModel: String = "",
+            claudeImplementModel: String = "",
+            claudeReviewModel: String = "",
+            researchPrompt: String,
+            planPrompt: String,
+            implementPrompt: String,
+            reviewPrompt: String
+        ) {
+            self.key = key
+            self.selectedProviderKindRawValue = selectedProviderKindRawValue
+            self.codexExecutablePath = codexExecutablePath
+            self.claudeExecutablePath = claudeExecutablePath
+            self.defaultWorkingDirectory = defaultWorkingDirectory
+            self.selectedProjectID = selectedProjectID
+            self.codexAuthStrategyRawValue = codexAuthStrategyRawValue
+            self.claudeAuthModeRawValue = claudeAuthModeRawValue
+            self.claudePermissionModeRawValue = claudePermissionModeRawValue
+            self.researchModel = researchModel
+            self.planModel = planModel
+            self.implementModel = implementModel
+            self.reviewModel = reviewModel
+            self.claudeResearchModel = claudeResearchModel
+            self.claudePlanModel = claudePlanModel
+            self.claudeImplementModel = claudeImplementModel
+            self.claudeReviewModel = claudeReviewModel
+            self.researchPrompt = researchPrompt
+            self.planPrompt = planPrompt
+            self.implementPrompt = implementPrompt
+            self.reviewPrompt = reviewPrompt
+        }
+    }
+}
+
+
 enum HarnessflowMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -2011,6 +2181,8 @@ enum HarnessflowMigrationPlan: SchemaMigrationPlan {
             HarnessflowSchemaV7.self,
             HarnessflowSchemaV8.self,
             HarnessflowSchemaV9.self,
+            HarnessflowSchemaV10.self,
+            HarnessflowSchemaV11.self,
         ]
     }
 
@@ -2024,6 +2196,8 @@ enum HarnessflowMigrationPlan: SchemaMigrationPlan {
             .lightweight(fromVersion: HarnessflowSchemaV6.self, toVersion: HarnessflowSchemaV7.self),
             .lightweight(fromVersion: HarnessflowSchemaV7.self, toVersion: HarnessflowSchemaV8.self),
             .lightweight(fromVersion: HarnessflowSchemaV8.self, toVersion: HarnessflowSchemaV9.self),
+            .lightweight(fromVersion: HarnessflowSchemaV9.self, toVersion: HarnessflowSchemaV10.self),
+            .lightweight(fromVersion: HarnessflowSchemaV10.self, toVersion: HarnessflowSchemaV11.self),
         ]
     }
 }
@@ -2066,11 +2240,11 @@ private enum PhaseQACoder {
     }
 }
 
-typealias ProjectEntity = HarnessflowSchemaV9.ProjectEntity
-typealias TicketEntity = HarnessflowSchemaV9.TicketEntity
-typealias PhaseStateEntity = HarnessflowSchemaV9.PhaseStateEntity
-typealias PhaseRunEntity = HarnessflowSchemaV9.PhaseRunEntity
-typealias SettingsEntity = HarnessflowSchemaV9.SettingsEntity
+typealias ProjectEntity = HarnessflowSchemaV11.ProjectEntity
+typealias TicketEntity = HarnessflowSchemaV11.TicketEntity
+typealias PhaseStateEntity = HarnessflowSchemaV11.PhaseStateEntity
+typealias PhaseRunEntity = HarnessflowSchemaV11.PhaseRunEntity
+typealias SettingsEntity = HarnessflowSchemaV11.SettingsEntity
 
 extension ProjectEntity {
     func update(
@@ -2311,10 +2485,16 @@ extension SettingsEntity {
             claudeExecutablePath: settings.claudeExecutablePath,
             defaultWorkingDirectory: settings.defaultWorkingDirectory,
             codexAuthStrategyRawValue: settings.codexAuthStrategy.rawValue,
-            researchModel: settings.phaseModels.research,
-            planModel: settings.phaseModels.plan,
-            implementModel: settings.phaseModels.implement,
-            reviewModel: settings.phaseModels.review,
+            claudeAuthModeRawValue: settings.claudeAuthMode.rawValue,
+            claudePermissionModeRawValue: settings.claudePermissionMode.rawValue,
+            researchModel: settings.codexPhaseModels.research,
+            planModel: settings.codexPhaseModels.plan,
+            implementModel: settings.codexPhaseModels.implement,
+            reviewModel: settings.codexPhaseModels.review,
+            claudeResearchModel: settings.claudePhaseModels.research,
+            claudePlanModel: settings.claudePhaseModels.plan,
+            claudeImplementModel: settings.claudePhaseModels.implement,
+            claudeReviewModel: settings.claudePhaseModels.review,
             researchPrompt: prompts.research,
             planPrompt: prompts.plan,
             implementPrompt: prompts.implement,
@@ -2329,10 +2509,16 @@ extension SettingsEntity {
         claudeExecutablePath = settings.claudeExecutablePath
         defaultWorkingDirectory = settings.defaultWorkingDirectory
         codexAuthStrategyRawValue = settings.codexAuthStrategy.rawValue
-        researchModel = settings.phaseModels.research
-        planModel = settings.phaseModels.plan
-        implementModel = settings.phaseModels.implement
-        reviewModel = settings.phaseModels.review
+        claudeAuthModeRawValue = settings.claudeAuthMode.rawValue
+        claudePermissionModeRawValue = settings.claudePermissionMode.rawValue
+        researchModel = settings.codexPhaseModels.research
+        planModel = settings.codexPhaseModels.plan
+        implementModel = settings.codexPhaseModels.implement
+        reviewModel = settings.codexPhaseModels.review
+        claudeResearchModel = settings.claudePhaseModels.research
+        claudePlanModel = settings.claudePhaseModels.plan
+        claudeImplementModel = settings.claudePhaseModels.implement
+        claudeReviewModel = settings.claudePhaseModels.review
         researchPrompt = prompts.research
         planPrompt = prompts.plan
         implementPrompt = prompts.implement
@@ -2383,6 +2569,26 @@ extension SettingsEntity {
         return true
     }
 
+    func normalizeClaudeAuthMode() -> Bool {
+        let trimmed = claudeAuthModeRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ClaudeAuthMode(rawValue: trimmed) != nil {
+            return false
+        }
+
+        claudeAuthModeRawValue = ClaudeAuthMode.subscription.rawValue
+        return true
+    }
+
+    func normalizeClaudePermissionMode() -> Bool {
+        let trimmed = claudePermissionModeRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ClaudePermissionMode(rawValue: trimmed) != nil {
+            return false
+        }
+
+        claudePermissionModeRawValue = ClaudePermissionMode.bypassPermissions.rawValue
+        return true
+    }
+
     func migrateLegacyCodexModelDefaultsIfNeeded() -> Bool {
         guard CodexAuthStrategy(rawValue: codexAuthStrategyRawValue) != .apiOnly else {
             return false
@@ -2401,6 +2607,53 @@ extension SettingsEntity {
         return true
     }
 
+    func fillMissingClaudePhaseModelsIfNeeded() -> Bool {
+        let storedClaudeModels = [
+            claudeResearchModel,
+            claudePlanModel,
+            claudeImplementModel,
+            claudeReviewModel,
+        ]
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard storedClaudeModels.allSatisfy(\.isEmpty) else {
+            return false
+        }
+
+        let normalized = PhaseModelSelection(
+            research: researchModel,
+            plan: planModel,
+            implement: implementModel,
+            review: reviewModel
+        ).normalized(for: .claude)
+
+        claudeResearchModel = normalized.research
+        claudePlanModel = normalized.plan
+        claudeImplementModel = normalized.implement
+        claudeReviewModel = normalized.review
+        return true
+    }
+
+    func normalizeStoredClaudeModelDefaultsIfNeeded() -> Bool {
+        let current = PhaseModelSelection(
+            research: claudeResearchModel,
+            plan: claudePlanModel,
+            implement: claudeImplementModel,
+            review: claudeReviewModel
+        )
+        let normalized = current.normalized(for: .claude)
+
+        guard normalized != current else {
+            return false
+        }
+
+        claudeResearchModel = normalized.research
+        claudePlanModel = normalized.plan
+        claudeImplementModel = normalized.implement
+        claudeReviewModel = normalized.review
+        return true
+    }
+
     func toDomain() -> AppSettings {
         AppSettings(
             selectedProviderKind: AgentProviderKind(rawValue: selectedProviderKindRawValue) ?? .codex,
@@ -2409,11 +2662,20 @@ extension SettingsEntity {
             defaultWorkingDirectory: defaultWorkingDirectory,
             codexAuthStrategy: CodexAuthStrategy(rawValue: codexAuthStrategyRawValue)
                 ?? .preferSubscriptionFallbackToAPI,
-            phaseModels: PhaseModelSelection(
+            claudeAuthMode: ClaudeAuthMode(rawValue: claudeAuthModeRawValue) ?? .subscription,
+            claudePermissionMode: ClaudePermissionMode(rawValue: claudePermissionModeRawValue)
+                ?? .bypassPermissions,
+            codexPhaseModels: PhaseModelSelection(
                 research: researchModel,
                 plan: planModel,
                 implement: implementModel,
                 review: reviewModel
+            ),
+            claudePhaseModels: PhaseModelSelection(
+                research: claudeResearchModel,
+                plan: claudePlanModel,
+                implement: claudeImplementModel,
+                review: claudeReviewModel
             ),
             phasePrompts: PhasePromptSelection(
                 research: researchPrompt,

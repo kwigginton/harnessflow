@@ -29,6 +29,7 @@ The workflow is intentionally constrained. It is not a general-purpose kanban sy
 - Process ownership inspection and termination (`OwnedProcessSupervisor`).
 - UI composition (`ContentView`, `BoardView`, `TicketDetailView`, `PhaseOutputWindowView`, `SettingsView`, `HarnessflowApp`).
 - Secret storage for OpenAI and Anthropic API keys via Keychain.
+- Provider-specific settings orchestration for Claude auth mode, Claude permission mode, and model normalization when Claude is selected.
 
 ## Core Domain Model
 - `TicketPhase` is a fixed enum with four phases: research, plan, implement, review.
@@ -54,7 +55,7 @@ Review is terminal in v1 board behavior.
    - phase-specific addendum,
    - prior completed phase deliverables,
    - shared output contract markers.
-3. `AppStore` resolves the selected provider. Codex uses `CodexAuthResolver` (subscription/API strategy + login status + API key availability + model constraints); Claude uses the configured Claude CLI with optional Anthropic API key injection.
+3. `AppStore` resolves the selected provider. Codex uses `CodexAuthResolver` (subscription/API strategy + login status + API key availability + model constraints); Claude uses an explicit auth mode, permission mode, and environment sanitization so subscription login stays on the `claude auth login` path unless API key mode is selected.
 4. `AppStore` marks phase as running, persists it, and starts live output capture.
 5. The selected CLI provider runs non-interactively in the selected project working directory.
 6. On completion, `TicketExecutionService`:
@@ -76,24 +77,31 @@ Key distinction: raw run output is always captured, but only marker-wrapped deli
   - API key only.
 - OpenAI and Anthropic API keys are stored in Keychain, not SwiftData.
 - Codex subscription/API resolution is model-aware (some models require API key).
-- Claude receives `ANTHROPIC_API_KEY` when an Anthropic token is saved; otherwise it relies on the local Claude CLI session/configuration.
+- Claude auth is subscription-first by default. Subscription mode keeps the local Claude CLI login path, strips conflicting API/cloud auth env vars, and records runs as `Claude Subscription`. API key mode injects the saved Anthropic key, strips conflicting env vars, and records runs as `Anthropic API Key`.
+- Harnessflow intentionally avoids `claude --bare` for subscription mode because `--bare` bypasses the Claude OAuth/keychain login path that Team and Enterprise seats rely on.
+- Claude permission mode is explicit and persisted. `bypassPermissions` preserves current unattended behavior, while `acceptEdits`, `plan`, and `dontAsk` map directly to the Claude CLI permission flags.
+- Claude and Codex model settings are persisted separately so provider switching does not overwrite either set. Claude still normalizes blank or legacy Codex defaults to the `sonnet` alias when Claude settings are saved or migrated.
+- Starting June 15, 2026, Anthropic bills `claude -p` against separate monthly Agent SDK credit rather than interactive Claude usage limits; Harnessflow documents this but does not meter it.
 
 ## Persistence Architecture
-- SwiftData schema is versioned (`HarnessflowSchemaV1` -> `V8`) with migration stages.
+- SwiftData schema is versioned (`HarnessflowSchemaV1` -> `V11`) with migration stages.
 - Persisted state includes:
   - projects and selected project,
   - tickets and per-phase state,
   - phase run history,
   - deliverables and run linkage,
   - owned process references,
-  - settings (selected provider, models, prompts, auth strategy, executable paths, default directory).
+  - settings (selected provider, provider-specific models, prompts, auth strategy, Claude auth mode, Claude permission mode, executable paths, default directory).
 - `PersistenceStore.bootstrapIfNeeded` performs startup normalization and migration-safe defaults:
   - creates a default project when missing,
   - associates orphan tickets,
   - ensures selected project validity,
   - fills missing bundled prompts,
   - normalizes auth strategy,
-  - migrates legacy model defaults.
+  - normalizes Claude auth and permission modes,
+  - migrates legacy model defaults,
+  - backfills Claude model storage from legacy shared settings once,
+  - replaces blank or legacy Codex defaults with the Claude `sonnet` alias only inside Claude's provider-specific model store.
 
 Project working directory is execution-scoped: runs use the selected project's directory, with settings default used for bootstrap/defaulting.
 
@@ -108,7 +116,7 @@ Project working directory is execution-scoped: runs use the selected project's d
 - Board surface shows fixed phase columns and supports movement rules (`BoardView`).
 - Detail surface edits prompts and executes phases (`TicketDetailView`).
 - A separate output window shows streaming/persisted logs (`PhaseOutputWindowView`).
-- Settings manages provider selection, executable paths, working directories, auth strategy, API keys, per-phase models, and per-phase prompts (`SettingsView`).
+- Settings manages provider selection, executable paths, working directories, auth strategy, Claude auth mode, Claude permission mode, API keys, provider-specific per-phase models, and per-phase prompts (`SettingsView`).
 
 Views are intentionally thin; orchestration and domain mutation live in `AppStore` and core services.
 

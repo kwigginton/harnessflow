@@ -47,7 +47,7 @@ public struct TicketRunRequestBuilder: Sendable {
                 continuation: nil
             ),
             promptAddendum: phaseState.prompt,
-            model: settings.phaseModels.model(for: phase),
+            model: settings.resolvedModel(for: phase),
             workingDirectory: workingDirectory
         )
     }
@@ -83,7 +83,7 @@ public struct TicketRunRequestBuilder: Sendable {
                 continuation: continuationContext(for: phaseState, answers: answers)
             ),
             promptAddendum: phaseState.prompt,
-            model: settings.phaseModels.model(for: phase),
+            model: settings.resolvedModel(for: phase),
             workingDirectory: workingDirectory
         )
     }

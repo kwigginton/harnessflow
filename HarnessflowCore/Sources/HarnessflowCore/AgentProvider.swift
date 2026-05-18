@@ -105,9 +105,12 @@ enum AgentProviderEnvironment {
 
     static func normalized(
         baseEnvironment: [String: String],
-        overrides: [String: String]
+        overrides: [String: String],
+        removals: Set<String> = []
     ) -> [String: String] {
-        var environment = baseEnvironment.merging(overrides) { _, override in override }
+        var environment = baseEnvironment
+        removals.forEach { environment.removeValue(forKey: $0) }
+        environment.merge(overrides) { _, override in override }
         environment["PATH"] = normalizedPath(environment["PATH"])
         return environment
     }
@@ -159,15 +162,21 @@ public enum AgentProviderError: LocalizedError, Equatable, Sendable {
 public struct ClaudeCLIProvider: AgentProvider {
     public var executablePath: String
     public var extraArguments: [String]
+    public var authMode: ClaudeAuthMode
+    public var permissionMode: ClaudePermissionMode
     public var environmentOverrides: [String: String]
 
     public init(
         executablePath: String = "/opt/homebrew/bin/claude",
         extraArguments: [String] = [],
+        authMode: ClaudeAuthMode = .subscription,
+        permissionMode: ClaudePermissionMode = .bypassPermissions,
         environmentOverrides: [String: String] = [:]
     ) {
         self.executablePath = executablePath
         self.extraArguments = extraArguments
+        self.authMode = authMode
+        self.permissionMode = permissionMode
         self.environmentOverrides = environmentOverrides
     }
 
@@ -256,11 +265,12 @@ public struct ClaudeCLIProvider: AgentProvider {
             arguments: [
                 "-p",
                 "--model", request.model,
-                "--permission-mode", "bypassPermissions",
+                "--permission-mode", permissionMode.rawValue,
             ] + extraArguments,
             environment: AgentProviderEnvironment.normalized(
                 baseEnvironment: baseEnvironment,
-                overrides: environmentOverrides
+                overrides: environmentOverrides,
+                removals: authMode.environmentRemovals
             ),
             currentDirectory: request.workingDirectory
         )

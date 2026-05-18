@@ -7,8 +7,29 @@ struct CodexAuthenticationTests {
         let settings = AppSettings(defaultWorkingDirectory: "/tmp")
 
         #expect(settings.codexAuthStrategy == .preferSubscriptionFallbackToAPI)
+        #expect(settings.claudeAuthMode == .subscription)
+        #expect(settings.claudePermissionMode == .bypassPermissions)
         #expect(settings.phaseModels.research == PhaseModelSelection.subscriptionCompatibleDefaultModel)
         #expect(settings.phaseModels.plan == PhaseModelSelection.subscriptionCompatibleDefaultModel)
+        #expect(settings.claudePhaseModels.research == PhaseModelSelection.claudeSubscriptionDefaultModel)
+    }
+
+    @Test
+    func appSettingsKeepCodexAndClaudeModelsSeparateAcrossProviderSwitches() {
+        var settings = AppSettings(
+            selectedProviderKind: .codex,
+            defaultWorkingDirectory: "/tmp",
+            codexPhaseModels: PhaseModelSelection(plan: "gpt-5.3-codex"),
+            claudePhaseModels: PhaseModelSelection(plan: "sonnet")
+        )
+
+        #expect(settings.phaseModels.plan == "gpt-5.3-codex")
+
+        settings.selectedProviderKind = .claude
+        #expect(settings.phaseModels.plan == "sonnet")
+
+        settings.selectedProviderKind = .codex
+        #expect(settings.phaseModels.plan == "gpt-5.3-codex")
     }
 
     @Test

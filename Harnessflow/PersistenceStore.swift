@@ -277,10 +277,11 @@ final class PersistenceStore {
 
     func saveSettings(_ settings: AppSettings) throws {
         try bootstrapIfNeeded()
+        let normalizedSettings = settings.normalizedForPersistence()
         if let entity = try fetchSettingsEntity() {
-            entity.update(from: settings)
+            entity.update(from: normalizedSettings)
         } else {
-            context.insert(SettingsEntity(settings: settings))
+            context.insert(SettingsEntity(settings: normalizedSettings))
         }
         try context.save()
     }
@@ -375,7 +376,19 @@ final class PersistenceStore {
         if settingsEntity.normalizeProviderSelection() {
             didChange = true
         }
+        if settingsEntity.normalizeClaudeAuthMode() {
+            didChange = true
+        }
+        if settingsEntity.normalizeClaudePermissionMode() {
+            didChange = true
+        }
         if settingsEntity.migrateLegacyCodexModelDefaultsIfNeeded() {
+            didChange = true
+        }
+        if settingsEntity.fillMissingClaudePhaseModelsIfNeeded() {
+            didChange = true
+        }
+        if settingsEntity.normalizeStoredClaudeModelDefaultsIfNeeded() {
             didChange = true
         }
 

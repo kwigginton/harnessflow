@@ -3,7 +3,7 @@ import SwiftData
 
 enum HarnessflowModelContainer {
     static func make() -> ModelContainer {
-        let schema = Schema(versionedSchema: HarnessflowSchemaV9.self)
+        let schema = Schema(versionedSchema: HarnessflowSchemaV11.self)
         let configuration = ModelConfiguration("Harnessflow", schema: schema)
 
         do {

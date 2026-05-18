@@ -684,10 +684,10 @@ final class AppStore: ObservableObject {
         claudeExecutablePath: String,
         defaultWorkingDirectory: String,
         codexAuthStrategy: CodexAuthStrategy,
-        researchModel: String,
-        planModel: String,
-        implementModel: String,
-        reviewModel: String,
+        claudeAuthMode: ClaudeAuthMode,
+        claudePermissionMode: ClaudePermissionMode,
+        codexPhaseModels: PhaseModelSelection,
+        claudePhaseModels: PhaseModelSelection,
         researchPrompt: String,
         planPrompt: String,
         implementPrompt: String,
@@ -699,12 +699,10 @@ final class AppStore: ObservableObject {
             claudeExecutablePath: claudeExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines),
             defaultWorkingDirectory: defaultWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
             codexAuthStrategy: codexAuthStrategy,
-            phaseModels: PhaseModelSelection(
-                research: researchModel.trimmingCharacters(in: .whitespacesAndNewlines),
-                plan: planModel.trimmingCharacters(in: .whitespacesAndNewlines),
-                implement: implementModel.trimmingCharacters(in: .whitespacesAndNewlines),
-                review: reviewModel.trimmingCharacters(in: .whitespacesAndNewlines)
-            ),
+            claudeAuthMode: claudeAuthMode,
+            claudePermissionMode: claudePermissionMode,
+            codexPhaseModels: trimmedPhaseModels(codexPhaseModels),
+            claudePhaseModels: trimmedPhaseModels(claudePhaseModels),
             phasePrompts: PhasePromptSelection(
                 research: researchPrompt,
                 plan: planPrompt,
@@ -719,6 +717,15 @@ final class AppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func trimmedPhaseModels(_ models: PhaseModelSelection) -> PhaseModelSelection {
+        PhaseModelSelection(
+            research: models.research.trimmingCharacters(in: .whitespacesAndNewlines),
+            plan: models.plan.trimmingCharacters(in: .whitespacesAndNewlines),
+            implement: models.implement.trimmingCharacters(in: .whitespacesAndNewlines),
+            review: models.review.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     func runCurrentPhase(for ticketID: UUID) async {
@@ -831,15 +838,41 @@ final class AppStore: ObservableObject {
             return AgentExecutionPlan(
                 providerKind: .codex,
                 apiToken: token,
-                codexResolution: resolution
+                codexResolution: resolution,
+                claudeAuthMode: .subscription,
+                claudePermissionMode: .bypassPermissions
             )
         case .claude:
-            let token = try anthropicCredentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return AgentExecutionPlan(
-                providerKind: .claude,
-                apiToken: token,
-                codexResolution: nil
-            )
+            let authMode = settings.claudeAuthMode
+            let permissionMode = settings.claudePermissionMode
+            switch authMode {
+            case .subscription:
+                return AgentExecutionPlan(
+                    providerKind: .claude,
+                    apiToken: nil,
+                    codexResolution: nil,
+                    claudeAuthMode: authMode,
+                    claudePermissionMode: permissionMode
+                )
+            case .apiKey:
+                let token = try anthropicCredentialsStore.loadToken()?.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard token?.isEmpty == false else {
+                    throw AgentExecutionAttemptError(
+                        message: "Save an Anthropic API key in Settings or switch Claude auth mode back to Subscription.",
+                        providerKind: .claude,
+                        authMethod: .unknown,
+                        authMethodDescription: authMode.runHistoryDescription,
+                        didFallbackFromSubscription: false
+                    )
+                }
+                return AgentExecutionPlan(
+                    providerKind: .claude,
+                    apiToken: token,
+                    codexResolution: nil,
+                    claudeAuthMode: authMode,
+                    claudePermissionMode: permissionMode
+                )
+            }
         }
     }
 
@@ -850,17 +883,22 @@ final class AppStore: ObservableObject {
         switch plan.providerKind {
         case .codex:
             guard let resolution = plan.codexResolution else {
-                throw CodexExecutionAttemptError(
+                throw AgentExecutionAttemptError(
                     message: "Codex authentication was not resolved.",
                     providerKind: .codex,
-                    codexAuthMethod: .unknown,
+                    authMethod: .unknown,
                     authMethodDescription: "Unknown",
                     didFallbackFromSubscription: false
                 )
             }
             return try await executeCodexRequest(request, apiToken: plan.apiToken, resolution: resolution)
         case .claude:
-            return try await executeClaudeRequest(request, apiToken: plan.apiToken)
+            return try await executeClaudeRequest(
+                request,
+                apiToken: plan.apiToken,
+                authMode: plan.claudeAuthMode,
+                permissionMode: plan.claudePermissionMode
+            )
         }
     }
 
@@ -914,7 +952,7 @@ final class AppStore: ObservableObject {
                 return AgentExecutionOutcome(
                     result: fallbackResult,
                     providerKind: .codex,
-                    codexAuthMethod: .apiKey,
+                    authMethod: .apiKey,
                     authMethodDescription: CodexAuthMethod.apiKey.title,
                     didFallbackFromSubscription: true
                 )
@@ -923,7 +961,7 @@ final class AppStore: ObservableObject {
             return AgentExecutionOutcome(
                 result: primaryResult,
                 providerKind: .codex,
-                codexAuthMethod: resolution.authMethod,
+                authMethod: resolution.authMethod,
                 authMethodDescription: resolution.authMethod.title,
                 didFallbackFromSubscription: false
             )
@@ -953,25 +991,25 @@ final class AppStore: ObservableObject {
                     return AgentExecutionOutcome(
                         result: fallbackResult,
                         providerKind: .codex,
-                        codexAuthMethod: .apiKey,
+                        authMethod: .apiKey,
                         authMethodDescription: CodexAuthMethod.apiKey.title,
                         didFallbackFromSubscription: true
                     )
                 } catch {
-                    throw CodexExecutionAttemptError(
+                    throw AgentExecutionAttemptError(
                         message: error.localizedDescription,
                         providerKind: .codex,
-                        codexAuthMethod: .apiKey,
+                        authMethod: .apiKey,
                         authMethodDescription: CodexAuthMethod.apiKey.title,
                         didFallbackFromSubscription: true
                     )
                 }
             }
 
-            throw CodexExecutionAttemptError(
+            throw AgentExecutionAttemptError(
                 message: error.localizedDescription,
                 providerKind: .codex,
-                codexAuthMethod: resolution.authMethod,
+                authMethod: resolution.authMethod,
                 authMethodDescription: resolution.authMethod.title,
                 didFallbackFromSubscription: false
             )
@@ -980,9 +1018,15 @@ final class AppStore: ObservableObject {
 
     private func executeClaudeRequest(
         _ request: AgentRunRequest,
-        apiToken: String?
+        apiToken: String?,
+        authMode: ClaudeAuthMode,
+        permissionMode: ClaudePermissionMode
     ) async throws -> AgentExecutionOutcome {
-        let provider = makeClaudeProvider(apiToken: apiToken?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let provider = makeClaudeProvider(
+            apiToken: apiToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+            authMode: authMode,
+            permissionMode: permissionMode
+        )
 
         do {
             let result = try await provider.run(
@@ -998,21 +1042,19 @@ final class AppStore: ObservableObject {
                     }
                 }
             )
-            let hasToken = apiToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             return AgentExecutionOutcome(
                 result: result,
                 providerKind: .claude,
-                codexAuthMethod: .unknown,
-                authMethodDescription: hasToken ? "Anthropic API Key" : "Claude CLI Session",
+                authMethod: .unknown,
+                authMethodDescription: authMode.runHistoryDescription,
                 didFallbackFromSubscription: false
             )
         } catch {
-            let hasToken = apiToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            throw CodexExecutionAttemptError(
+            throw AgentExecutionAttemptError(
                 message: error.localizedDescription,
                 providerKind: .claude,
-                codexAuthMethod: .unknown,
-                authMethodDescription: hasToken ? "Anthropic API Key" : "Claude CLI Session",
+                authMethod: .unknown,
+                authMethodDescription: authMode.runHistoryDescription,
                 didFallbackFromSubscription: false
             )
         }
@@ -1041,7 +1083,11 @@ final class AppStore: ObservableObject {
         )
     }
 
-    private func makeClaudeProvider(apiToken: String?) -> ClaudeCLIProvider {
+    private func makeClaudeProvider(
+        apiToken: String?,
+        authMode: ClaudeAuthMode,
+        permissionMode: ClaudePermissionMode
+    ) -> ClaudeCLIProvider {
         let environmentOverrides: [String: String]
         if let apiToken, apiToken.isEmpty == false {
             environmentOverrides = ["ANTHROPIC_API_KEY": apiToken]
@@ -1051,6 +1097,8 @@ final class AppStore: ObservableObject {
 
         return ClaudeCLIProvider(
             executablePath: settings.claudeExecutablePath,
+            authMode: authMode,
+            permissionMode: permissionMode,
             environmentOverrides: environmentOverrides
         )
     }
@@ -1188,7 +1236,7 @@ final class AppStore: ObservableObject {
                     request: request,
                     result: execution.result,
                     providerKind: execution.providerKind,
-                    authMethod: execution.codexAuthMethod,
+                    authMethod: execution.authMethod,
                     authMethodDescription: execution.authMethodDescription,
                     didFallbackFromSubscription: execution.didFallbackFromSubscription
                 ),
@@ -1198,7 +1246,7 @@ final class AppStore: ObservableObject {
                 now: execution.result.completedAt
             )
         } catch {
-            let executionError = error as? CodexExecutionAttemptError
+            let executionError = error as? AgentExecutionAttemptError
             let message = executionError?.message ?? error.localizedDescription
             let currentTicket = loadPersistedTicket(id: request.ticketID, fallback: latestTicket)
             await dispatchTicketEvent(
@@ -1206,7 +1254,7 @@ final class AppStore: ObservableObject {
                     request: request,
                     message: message,
                     providerKind: executionError?.providerKind ?? settings.selectedProviderKind,
-                    authMethod: executionError?.codexAuthMethod ?? .unknown,
+                    authMethod: executionError?.authMethod ?? .unknown,
                     authMethodDescription: executionError?.authMethodDescription ?? "Unknown",
                     didFallbackFromSubscription: executionError?.didFallbackFromSubscription ?? false
                 ),
@@ -1560,20 +1608,22 @@ private struct AgentExecutionPlan {
     let providerKind: AgentProviderKind
     let apiToken: String?
     let codexResolution: CodexAuthResolution?
+    let claudeAuthMode: ClaudeAuthMode
+    let claudePermissionMode: ClaudePermissionMode
 }
 
 private struct AgentExecutionOutcome {
     let result: AgentRunResult
     let providerKind: AgentProviderKind
-    let codexAuthMethod: CodexAuthMethod
+    let authMethod: CodexAuthMethod
     let authMethodDescription: String
     let didFallbackFromSubscription: Bool
 }
 
-private struct CodexExecutionAttemptError: LocalizedError {
+private struct AgentExecutionAttemptError: LocalizedError {
     let message: String
     let providerKind: AgentProviderKind
-    let codexAuthMethod: CodexAuthMethod
+    let authMethod: CodexAuthMethod
     let authMethodDescription: String
     let didFallbackFromSubscription: Bool
 

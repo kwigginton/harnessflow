@@ -38,9 +38,11 @@ struct TicketReducerTests {
     }
 
     @Test
-    func claudeProviderInvocationUsesPrintModeWorkingDirectoryAndEnvironmentOverrides() {
+    func claudeProviderInvocationUsesPermissionModeAndAPIKeyOverrides() {
         let provider = ClaudeCLIProvider(
             executablePath: "/opt/homebrew/bin/claude",
+            authMode: .apiKey,
+            permissionMode: .acceptEdits,
             environmentOverrides: ["ANTHROPIC_API_KEY": "sk-ant-test"]
         )
         let request = AgentRunRequest(
@@ -56,17 +58,70 @@ struct TicketReducerTests {
             baseEnvironment: [
                 "PATH": "/usr/bin",
                 "ANTHROPIC_API_KEY": "stale-token",
+                "ANTHROPIC_AUTH_TOKEN": "stale-bearer",
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "CLAUDE_CODE_USE_VERTEX": "1",
+                "CLAUDE_CODE_USE_FOUNDRY": "1",
+                "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
             ]
         )
 
         #expect(invocation.arguments == [
             "-p",
             "--model", "claude-sonnet-4-5",
-            "--permission-mode", "bypassPermissions",
+            "--permission-mode", "acceptEdits",
         ])
         #expect(invocation.currentDirectory == "/tmp/project")
         #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
         #expect(invocation.environment["ANTHROPIC_API_KEY"] == "sk-ant-test")
+        #expect(invocation.environment["ANTHROPIC_AUTH_TOKEN"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_BEDROCK"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_VERTEX"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_FOUNDRY"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_OAUTH_TOKEN"] == nil)
+    }
+
+    @Test
+    func claudeSubscriptionModeStripsConflictingEnvironmentButKeepsOAuthToken() {
+        let provider = ClaudeCLIProvider(
+            executablePath: "/opt/homebrew/bin/claude",
+            authMode: .subscription,
+            permissionMode: .plan
+        )
+        let request = AgentRunRequest(
+            ticketID: UUID(),
+            phase: .implement,
+            prompt: "Implement prompt",
+            model: "sonnet",
+            workingDirectory: "/tmp/project"
+        )
+
+        let invocation = provider.makeInvocation(
+            for: request,
+            baseEnvironment: [
+                "PATH": "/usr/bin",
+                "ANTHROPIC_API_KEY": "stale-token",
+                "ANTHROPIC_AUTH_TOKEN": "stale-bearer",
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "CLAUDE_CODE_USE_VERTEX": "1",
+                "CLAUDE_CODE_USE_FOUNDRY": "1",
+                "CLAUDE_CODE_OAUTH_TOKEN": "oauth-token",
+            ]
+        )
+
+        #expect(invocation.arguments == [
+            "-p",
+            "--model", "sonnet",
+            "--permission-mode", "plan",
+        ])
+        #expect(invocation.currentDirectory == "/tmp/project")
+        #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
+        #expect(invocation.environment["ANTHROPIC_API_KEY"] == nil)
+        #expect(invocation.environment["ANTHROPIC_AUTH_TOKEN"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_BEDROCK"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_VERTEX"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_USE_FOUNDRY"] == nil)
+        #expect(invocation.environment["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token")
     }
 
     @Test
@@ -249,6 +304,28 @@ struct TicketReducerTests {
         #expect(reviewRequest.prompt.contains("Review Exit Check"))
         #expect(reviewRequest.prompt.contains("Final Pass Required: Yes"))
         #expect(reviewRequest.prompt.contains("Final Pass Required: No"))
+    }
+
+    @Test
+    func requestBuilderNormalizesClaudeLegacyDefaultModelsToSonnet() throws {
+        let settings = AppSettings(
+            selectedProviderKind: .claude,
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(
+                research: "",
+                plan: PhaseModelSelection.subscriptionCompatibleDefaultModel,
+                implement: "claude-opus-4-7",
+                review: "  "
+            ),
+            phasePrompts: PhasePromptSelection(plan: "Plan base prompt")
+        )
+
+        let request = try TicketRunRequestBuilder().makeRequest(
+            for: Ticket(title: "Claude models", column: .plan),
+            settings: settings
+        )
+
+        #expect(request.model == PhaseModelSelection.claudeSubscriptionDefaultModel)
     }
 
     @Test
