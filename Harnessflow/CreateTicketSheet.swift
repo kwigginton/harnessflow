@@ -112,7 +112,7 @@ struct CreateTicketSheet: View {
                     )
             }
 
-            Toggle("Auto-shift on successful completion", isOn: $autoShiftOnSuccess)
+            Toggle("Auto-run next phase on success", isOn: $autoShiftOnSuccess)
 
             HStack {
                 Spacer()

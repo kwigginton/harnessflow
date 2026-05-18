@@ -62,7 +62,7 @@ Review is terminal in v1 board behavior.
    - treats missing markers as failure even if process exit code is 0,
    - appends a `PhaseRun` record,
    - updates phase status and snapshots.
-7. `AppStore` persists updates and optionally auto-shifts to the next adjacent phase when enabled.
+7. `AppStore` persists updates and optionally auto-runs the next adjacent phase on successful completion when enabled.
 
 Key distinction: raw run output is always captured, but only marker-wrapped deliverable markdown is persisted for phase handoff.
 

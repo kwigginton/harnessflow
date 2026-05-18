@@ -492,7 +492,7 @@ struct TicketReducerTests {
     }
 
     @Test
-    func autoShiftRunsAfterSuccessfulDeliverable() {
+    func autoShiftStartsNextPhaseAfterSuccessfulDeliverable() throws {
         var ticket = Ticket(title: "Auto", autoShiftOnSuccess: true)
         let request = AgentRunRequest(
             ticketID: ticket.id,
@@ -501,6 +501,7 @@ struct TicketReducerTests {
             model: "codex",
             workingDirectory: "/tmp"
         )
+        let completedAt = Date(timeIntervalSince1970: 4_000)
         let agentResult = AgentRunResult(
             output: """
             \(PhaseDeliverableContract.startMarker)
@@ -509,12 +510,72 @@ struct TicketReducerTests {
             """,
             errorOutput: "",
             startedAt: .distantPast,
-            completedAt: Date(timeIntervalSince1970: 4_000),
+            completedAt: completedAt,
             exitCode: 0
         )
         var research = ticket.phaseState(for: .research)
         research.executionState = .running
         ticket.updatePhaseState(research)
+
+        let result = reduce(
+            ticket,
+            event: .agentResultReceived(
+                request: request,
+                result: agentResult,
+                providerKind: .codex,
+                authMethod: .unknown,
+                authMethodDescription: "Unknown",
+                didFallbackFromSubscription: false
+            ),
+            settings: phaseSettings,
+            now: completedAt
+        )
+        let planRequest = try runRequest(from: result.commands)
+
+        #expect(result.ticket.column == .plan)
+        #expect(result.ticket.phaseState(for: .research).executionState == .completed)
+        #expect(result.ticket.phaseState(for: .research).deliverableMarkdown == "## Done")
+        #expect(result.ticket.phaseState(for: .research).runs.count == 1)
+        #expect(result.ticket.phaseState(for: .plan).executionState == .running)
+        #expect(planRequest.phase == .plan)
+        #expect(planRequest.prompt.contains("Plan base prompt"))
+        #expect(planRequest.prompt.contains("## Research"))
+        #expect(planRequest.prompt.contains("## Done"))
+        #expect(planRequest.model == "codex-plan")
+        #expect(planRequest.workingDirectory == "/tmp/workdir")
+        #expect(result.commands == [
+            .completeLiveOutput(request: request, result: agentResult),
+            .persistTicket(result.ticket),
+            .beginLiveOutput(request: planRequest, startedAt: completedAt),
+            .runAgent(planRequest),
+        ])
+    }
+
+    @Test
+    func autoShiftStopsWhenPlanRequestsInput() {
+        var ticket = Ticket(title: "Auto plan", column: .plan, autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .plan,
+            prompt: "Plan",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let agentResult = AgentRunResult(
+            output: """
+            I need a decision.
+            \(AgentQuestionContract.startMarker)
+            {"id":"00000000-0000-0000-0000-000000000000","questions":[{"id":"storage","prompt":"How should Q&A be stored?","choices":[{"id":"json","label":"JSON"}],"allowsFreeform":false,"defaultChoiceID":"json"}]}
+            \(AgentQuestionContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: Date(timeIntervalSince1970: 4_100),
+            exitCode: 0
+        )
+        var plan = ticket.phaseState(for: .plan)
+        plan.executionState = .running
+        ticket.updatePhaseState(plan)
 
         let result = reduce(ticket, event: .agentResultReceived(
             request: request,
@@ -524,12 +585,183 @@ struct TicketReducerTests {
             authMethodDescription: "Unknown",
             didFallbackFromSubscription: false
         ))
+        let planState = result.ticket.phaseState(for: .plan)
 
         #expect(result.ticket.column == .plan)
-        #expect(result.ticket.phaseState(for: .research).executionState == .completed)
+        #expect(planState.executionState == .awaitingInput)
+        #expect(planState.pendingQuestions?.questions.first?.id == "storage")
+        #expect(planState.runs.last?.success == false)
         #expect(result.commands == [
             .completeLiveOutput(request: request, result: agentResult),
             .persistTicket(result.ticket),
+        ])
+    }
+
+    @Test
+    func autoShiftCompletesReviewWithoutStartingAnotherRun() {
+        var ticket = Ticket(title: "Auto review", column: .review, autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .review,
+            prompt: "Review",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let completedAt = Date(timeIntervalSince1970: 5_000)
+        let agentResult = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Findings
+            None.
+
+            Final Pass Required: No
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: completedAt,
+            exitCode: 0
+        )
+        var review = ticket.phaseState(for: .review)
+        review.executionState = .running
+        ticket.updatePhaseState(review)
+
+        let result = reduce(
+            ticket,
+            event: .agentResultReceived(
+                request: request,
+                result: agentResult,
+                providerKind: .codex,
+                authMethod: .unknown,
+                authMethodDescription: "Unknown",
+                didFallbackFromSubscription: false
+            ),
+            settings: phaseSettings,
+            now: completedAt
+        )
+        let reviewState = result.ticket.phaseState(for: .review)
+
+        #expect(result.ticket.column == .review)
+        #expect(result.ticket.completedAt == completedAt)
+        #expect(reviewState.executionState == .completed)
+        #expect(reviewState.needsFinalAdjustments == false)
+        #expect(reviewState.runs.count == 1)
+        #expect(result.commands == [
+            .completeLiveOutput(request: request, result: agentResult),
+            .persistTicket(result.ticket),
+        ])
+    }
+
+    @Test
+    func autoShiftPersistsShiftedTicketWhenNextPhasePromptIsMissing() {
+        var ticket = Ticket(title: "Missing prompt", autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .research,
+            prompt: "Research",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let completedAt = Date(timeIntervalSince1970: 4_200)
+        let agentResult = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Done
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: completedAt,
+            exitCode: 0
+        )
+        var research = ticket.phaseState(for: .research)
+        research.executionState = .running
+        ticket.updatePhaseState(research)
+
+        var settings = phaseSettings
+        settings.phasePrompts.plan = ""
+
+        let result = reduce(
+            ticket,
+            event: .agentResultReceived(
+                request: request,
+                result: agentResult,
+                providerKind: .codex,
+                authMethod: .unknown,
+                authMethodDescription: "Unknown",
+                didFallbackFromSubscription: false
+            ),
+            settings: settings,
+            now: completedAt
+        )
+
+        #expect(result.ticket.column == .plan)
+        #expect(result.ticket.completedAt == nil)
+        #expect(result.ticket.phaseState(for: .research).executionState == .completed)
+        #expect(result.ticket.phaseState(for: .research).deliverableMarkdown == "## Done")
+        #expect(result.ticket.phaseState(for: .research).runs.count == 1)
+        #expect(result.ticket.phaseState(for: .plan).executionState == .idle)
+        #expect(result.commands == [
+            .completeLiveOutput(request: request, result: agentResult),
+            .persistTicket(result.ticket),
+            .presentError("Add a base prompt for Plan in Settings before running the agent."),
+        ])
+    }
+
+    @Test
+    func autoShiftPersistsShiftedTicketWhenWorkingDirectoryIsMissing() {
+        var ticket = Ticket(title: "Missing working directory", autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .research,
+            prompt: "Research",
+            model: "codex",
+            workingDirectory: "/tmp"
+        )
+        let completedAt = Date(timeIntervalSince1970: 4_300)
+        let agentResult = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Done
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: completedAt,
+            exitCode: 0
+        )
+        var research = ticket.phaseState(for: .research)
+        research.executionState = .running
+        ticket.updatePhaseState(research)
+
+        var settings = phaseSettings
+        settings.defaultWorkingDirectory = ""
+
+        let result = reduce(
+            ticket,
+            event: .agentResultReceived(
+                request: request,
+                result: agentResult,
+                providerKind: .codex,
+                authMethod: .unknown,
+                authMethodDescription: "Unknown",
+                didFallbackFromSubscription: false
+            ),
+            settings: settings,
+            workingDirectoryOverride: nil,
+            now: completedAt
+        )
+
+        #expect(result.ticket.column == .plan)
+        #expect(result.ticket.completedAt == nil)
+        #expect(result.ticket.phaseState(for: .research).executionState == .completed)
+        #expect(result.ticket.phaseState(for: .research).deliverableMarkdown == "## Done")
+        #expect(result.ticket.phaseState(for: .research).runs.count == 1)
+        #expect(result.ticket.phaseState(for: .plan).executionState == .idle)
+        #expect(result.commands == [
+            .completeLiveOutput(request: request, result: agentResult),
+            .persistTicket(result.ticket),
+            .presentError("Configure a working directory in Settings before running the agent."),
         ])
     }
 
@@ -608,6 +840,7 @@ struct TicketReducerTests {
         _ ticket: Ticket,
         event: TicketEvent,
         settings: AppSettings? = nil,
+        workingDirectoryOverride: String? = "/tmp/workdir",
         now: Date = Date(timeIntervalSince1970: 1_000)
     ) -> TicketReducerResult {
         TicketReducer().reduce(
@@ -623,7 +856,7 @@ struct TicketReducerTests {
                         review: "Review base prompt"
                     )
                 ),
-                workingDirectoryOverride: "/tmp/workdir",
+                workingDirectoryOverride: workingDirectoryOverride,
                 now: now
             )
         )

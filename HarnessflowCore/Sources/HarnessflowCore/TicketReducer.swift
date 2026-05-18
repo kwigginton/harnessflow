@@ -121,6 +121,7 @@ public struct TicketReducer: Sendable {
                     ticket: ticket,
                     request: request,
                     result: result,
+                    context: context,
                     providerKind: providerKind,
                     authMethod: authMethod,
                     authMethodDescription: authMethodDescription,
@@ -306,6 +307,7 @@ public struct TicketReducer: Sendable {
         ticket: Ticket,
         request: AgentRunRequest,
         result: AgentRunResult,
+        context: TicketReducerContext,
         providerKind: AgentProviderKind,
         authMethod: CodexAuthMethod,
         authMethodDescription: String,
@@ -361,15 +363,55 @@ public struct TicketReducer: Sendable {
         updated.updatePhaseState(phaseState)
         updated.updatedAt = result.completedAt
 
-        var commands: [TicketCommand] = [.completeLiveOutput(request: request, result: result)]
+        let completionCommands: [TicketCommand] = [.completeLiveOutput(request: request, result: result)]
         if finalSuccess, updated.autoShiftOnSuccess, shouldAutoShiftAfterSuccess(updated, phase: request.phase) {
-            let shifted = try shiftCompletedTicket(updated, movedAt: result.completedAt)
-            updated = shifted.ticket
-            commands.append(contentsOf: shifted.commands)
-        } else {
-            commands.append(.persistTicket(updated))
+            let autoAdvance = autoAdvanceAfterSuccessfulResult(
+                ticket: updated,
+                request: request,
+                context: context,
+                completedAt: result.completedAt
+            )
+            return TicketReducerResult(
+                ticket: autoAdvance.ticket,
+                commands: completionCommands + autoAdvance.commands
+            )
         }
-        return TicketReducerResult(ticket: updated, commands: commands)
+
+        return TicketReducerResult(
+            ticket: updated,
+            commands: completionCommands + [.persistTicket(updated)]
+        )
+    }
+
+    private func autoAdvanceAfterSuccessfulResult(
+        ticket: Ticket,
+        request: AgentRunRequest,
+        context: TicketReducerContext,
+        completedAt: Date
+    ) -> TicketReducerResult {
+        do {
+            let shifted = try shiftCompletedTicket(ticket, movedAt: completedAt)
+            guard shifted.ticket.column != request.phase else {
+                return shifted
+            }
+
+            do {
+                return try startRun(shifted.ticket, context: context, answers: nil)
+            } catch {
+                return TicketReducerResult(
+                    ticket: shifted.ticket,
+                    commands: shifted.commands + [.presentError(error.localizedDescription)]
+                )
+            }
+        } catch {
+            return TicketReducerResult(
+                ticket: ticket,
+                commands: [
+                    .persistTicket(ticket),
+                    .presentError(error.localizedDescription),
+                ]
+            )
+        }
     }
 
     private func shouldAutoShiftAfterSuccess(_ ticket: Ticket, phase: TicketPhase) -> Bool {
