@@ -1,10 +1,10 @@
 import Foundation
 
 public struct AgentQuestionSet: Codable, Equatable, Sendable {
-    public var id: UUID
+    public var id: String
     public var questions: [AgentQuestion]
 
-    public init(id: UUID = UUID(), questions: [AgentQuestion]) {
+    public init(id: String = UUID().uuidString, questions: [AgentQuestion]) {
         self.id = id
         self.questions = questions
     }
@@ -66,10 +66,10 @@ public enum AgentQuestionContract {
         If you are blocked on a user decision, do not guess and do not return a final deliverable. Return only a JSON question set wrapped exactly between these markers:
 
         \(startMarker)
-        {"id":"00000000-0000-0000-0000-000000000000","questions":[{"id":"decision","prompt":"Which option should I use?","choices":[{"id":"a","label":"Option A","description":"Use A."}],"allowsFreeform":false,"defaultChoiceID":"a"}]}
+        {"id":"stable-question-set-id","questions":[{"id":"decision","prompt":"Which option should I use?","choices":[{"id":"a","label":"Option A","description":"Use A."}],"allowsFreeform":false,"defaultChoiceID":"a"}]}
         \(endMarker)
 
-        Use stable question ids. Use choices for single-selection decisions. Set allowsFreeform to true for text answers.
+        Use stable question-set and question ids. Use choices for single-selection decisions. Set allowsFreeform to true for text answers.
         """
     }
 

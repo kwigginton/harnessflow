@@ -31,6 +31,46 @@ public enum PhaseDeliverableContract {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return deliverable.isEmpty ? nil : deliverable
     }
+
+    public static func recoverUnwrappedDeliverable(from output: String, phase: TicketPhase) -> String? {
+        guard
+            output.range(of: startMarker) == nil,
+            output.range(of: endMarker) == nil
+        else {
+            return nil
+        }
+
+        let deliverable = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard deliverable.count >= 80, hasMarkdownStructure(deliverable) else {
+            return nil
+        }
+
+        if phase == .review, ReviewFinalPassContract.requiresFinalPass(in: deliverable) == nil {
+            return nil
+        }
+
+        return deliverable
+    }
+
+    private static func hasMarkdownStructure(_ markdown: String) -> Bool {
+        let lines = markdown.components(separatedBy: .newlines)
+        var signalCount = 0
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("#") {
+                signalCount += 2
+            } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                signalCount += 1
+            } else if trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+                signalCount += 1
+            } else if trimmed.hasPrefix("```") {
+                signalCount += 1
+            }
+        }
+
+        return signalCount >= 2
+    }
 }
 
 public enum ReviewFinalPassContract {

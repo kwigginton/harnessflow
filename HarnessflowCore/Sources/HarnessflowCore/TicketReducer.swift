@@ -316,7 +316,11 @@ public struct TicketReducer: Sendable {
         var updated = ticket
         var phaseState = updated.phaseState(for: request.phase)
         let questionSet = result.success ? AgentQuestionContract.extractQuestionSet(from: result.output) : nil
-        let deliverable = result.success ? PhaseDeliverableContract.extractDeliverable(from: result.output) : nil
+        let wrappedDeliverable = result.success ? PhaseDeliverableContract.extractDeliverable(from: result.output) : nil
+        let recoveredDeliverable = result.success && questionSet == nil && wrappedDeliverable == nil
+            ? PhaseDeliverableContract.recoverUnwrappedDeliverable(from: result.output, phase: request.phase)
+            : nil
+        let deliverable = wrappedDeliverable ?? recoveredDeliverable
         let deliverableError = result.success && deliverable == nil && questionSet == nil
             ? "Agent output did not include a wrapped \(request.phase.title.lowercased()) deliverable using the required Harnessflow markers."
             : nil

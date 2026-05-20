@@ -452,6 +452,46 @@ struct TicketReducerTests {
     }
 
     @Test
+    func agentResultMapsStringQuestionSetIDToAwaitingInput() {
+        let ticket = Ticket(title: "Needs Claude decision", column: .plan)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .plan,
+            prompt: "Plan",
+            model: "sonnet",
+            workingDirectory: "/tmp"
+        )
+        let agentResult = AgentRunResult(
+            output: """
+            Two decisions materially affect the schema.
+            \(AgentQuestionContract.startMarker)
+            {"id":"mul-4046-plan-v1","questions":[{"id":"invite_email_scope","prompt":"Should Invites also get a multi-email table?","choices":[{"id":"user_only","label":"Users only"},{"id":"both","label":"Both User and Invite"}],"allowsFreeform":false,"defaultChoiceID":"user_only"},{"id":"onetoonestrategy","prompt":"How should conflicting one-to-one records merge?","choices":[{"id":"survivor_wins","label":"Survivor wins entirely"},{"id":"fill_gaps","label":"Fill gaps from loser"}],"allowsFreeform":false,"defaultChoiceID":"survivor_wins"}]}
+            \(AgentQuestionContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let result = reduce(ticket, event: .agentResultReceived(
+            request: request,
+            result: agentResult,
+            providerKind: .claude,
+            authMethod: .unknown,
+            authMethodDescription: "Claude Subscription",
+            didFallbackFromSubscription: false
+        ))
+        let state = result.ticket.phaseState(for: .plan)
+
+        #expect(state.executionState == .awaitingInput)
+        #expect(state.pendingQuestions?.id == "mul-4046-plan-v1")
+        #expect(state.pendingQuestions?.questions.map(\.id) == ["invite_email_scope", "onetoonestrategy"])
+        #expect(state.capturedError.isEmpty)
+        #expect(state.runs.last?.success == false)
+    }
+
+    @Test
     func agentResultMarksWrappedDeliverableMissingAsFailed() {
         let ticket = Ticket(title: "Missing Deliverable", column: .implement)
         let request = AgentRunRequest(
@@ -483,6 +523,102 @@ struct TicketReducerTests {
         #expect(state.executionState == .failed)
         #expect(state.capturedOutput == "implemented without markers")
         #expect(state.capturedError.contains("wrapped implement deliverable"))
+        #expect(state.deliverableMarkdown.isEmpty)
+        #expect(state.runs.last?.success == false)
+    }
+
+    @Test
+    func agentResultRecoversUnwrappedMarkdownImplementDeliverable() {
+        let ticket = Ticket(title: "Claude implement summary", column: .implement)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .implement,
+            prompt: "Implement",
+            model: "sonnet",
+            workingDirectory: "/tmp"
+        )
+        let output = """
+        Implementation complete. The MUL-4046 user merge feature implementation is complete.
+
+        ## Implementation Complete
+
+        All components are in place and verified.
+
+        ### Files Created/Modified
+        1. core/admin.py - Added merge methods to UserAdmin.
+        2. core/templates/admin/merge_users.html - Search form template.
+        3. core/templates/admin/merge_confirm.html - Confirmation page.
+        4. core/tests/managers/test_user_merge_manager.py - 15 comprehensive tests.
+
+        ### Feature Summary
+        - Admin workflow: two-step merge with search, confirm, and execute.
+        - Email handling: loser's emails become aliases on the survivor account.
+        - Data integrity: atomic transactions and immutable audit trail.
+        """
+        let agentResult = AgentRunResult(
+            output: output,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let result = reduce(ticket, event: .agentResultReceived(
+            request: request,
+            result: agentResult,
+            providerKind: .claude,
+            authMethod: .unknown,
+            authMethodDescription: "Claude Subscription",
+            didFallbackFromSubscription: false
+        ))
+        let state = result.ticket.phaseState(for: .implement)
+
+        #expect(state.executionState == .completed)
+        #expect(state.deliverableMarkdown == output)
+        #expect(state.capturedError.isEmpty)
+        #expect(state.runs.last?.success == true)
+    }
+
+    @Test
+    func agentResultDoesNotRecoverUnwrappedReviewWithoutFinalPassDecision() {
+        let ticket = Ticket(title: "Review without final decision", column: .review)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .review,
+            prompt: "Review",
+            model: "sonnet",
+            workingDirectory: "/tmp"
+        )
+        let agentResult = AgentRunResult(
+            output: """
+            ## Findings
+            None found.
+
+            ## Validation
+            - Inspected the implementation diff.
+            - Reviewed the tests added for the merge workflow.
+
+            ## Residual Risk
+            - A full staging run was not performed.
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: .now,
+            exitCode: 0
+        )
+
+        let result = reduce(ticket, event: .agentResultReceived(
+            request: request,
+            result: agentResult,
+            providerKind: .claude,
+            authMethod: .unknown,
+            authMethodDescription: "Claude Subscription",
+            didFallbackFromSubscription: false
+        ))
+        let state = result.ticket.phaseState(for: .review)
+
+        #expect(state.executionState == .failed)
+        #expect(state.capturedError.contains("wrapped review deliverable"))
         #expect(state.deliverableMarkdown.isEmpty)
         #expect(state.runs.last?.success == false)
     }
