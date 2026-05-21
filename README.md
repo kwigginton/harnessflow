@@ -35,6 +35,7 @@ xcodebuild -project Harnessflow.xcodeproj -target Harnessflow -configuration Deb
 
 - Codex runs the local `codex` CLI non-interactively and can use either the Codex CLI ChatGPT login or an OpenAI API key from Keychain.
 - Claude runs the local `claude` CLI non-interactively with `claude -p`. The default path uses the Claude.ai subscription login from `claude auth login` with the Team/Enterprise account your admin invited, and Harnessflow strips conflicting API/cloud auth variables in that mode.
+- Claude live output is parsed from `stream-json` progress events, while the final Claude `result` text remains the persisted phase output.
 - Harnessflow intentionally does not use `claude --bare` for subscription mode because `--bare` skips the Claude OAuth/keychain login path that Team and Enterprise subscriptions rely on.
 - Claude API key mode is still available if you intentionally want Anthropic API auth. Saved keys live in the macOS Keychain and are only injected when API key mode is selected.
 - Claude permission mode is explicit. `bypassPermissions` matches the current unattended behavior, but `acceptEdits` is the safer default for day-to-day code work. `plan` is read-only, and `dontAsk` is for locked-down scripts.

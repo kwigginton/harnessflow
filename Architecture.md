@@ -71,6 +71,7 @@ Key distinction: raw run output is always captured, but only marker-wrapped deli
 - Provider boundary: `AgentProvider` protocol.
 - Current implementations: `CodexCLIProvider` and `ClaudeCLIProvider`.
 - Invocation shape includes model selection, working-directory selection, stdin prompt piping, and non-interactive CLI execution.
+- Claude runs use `stream-json` output with partial messages enabled so Harnessflow can show readable progress while preserving the final `result` text as the persisted phase output.
 - Codex auth strategies:
   - prefer subscription, fallback to API on rate-limit-like failures,
   - subscription only,

@@ -14,13 +14,20 @@ struct PhaseOutputPane: View {
     private let bottomAnchor = "phase-output-bottom"
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            pane(now: timeline.date)
+        }
+    }
+
+    @ViewBuilder
+    private func pane(now: Date) -> some View {
         let liveOutput = store.liveOutput(for: ticketID, phase: phase)
         let persistedState = ticket?.phaseState(for: phase)
-        let outputText = visibleDisplayText(liveOutput: liveOutput, persistedState: persistedState)
+        let outputText = visibleDisplayText(liveOutput: liveOutput, persistedState: persistedState, now: now)
         let liveOutputRevision = liveOutput?.lastUpdatedAt
 
         VStack(alignment: .leading, spacing: 12) {
-            header(liveOutput: liveOutput, persistedState: persistedState)
+            header(liveOutput: liveOutput, persistedState: persistedState, now: now)
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -49,7 +56,7 @@ struct PhaseOutputPane: View {
     }
 
     @ViewBuilder
-    private func header(liveOutput: AppStore.LivePhaseOutput?, persistedState: TicketPhaseState?) -> some View {
+    private func header(liveOutput: AppStore.LivePhaseOutput?, persistedState: TicketPhaseState?, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if showsTicketTitle {
                 Text(ticket?.title ?? "Ticket")
@@ -62,12 +69,13 @@ struct PhaseOutputPane: View {
 
                 if let liveOutput {
                     StatusBadge(state: liveOutput.isRunning ? .running : (persistedState?.executionState ?? .idle))
-                    Text(
-                        liveOutput.processIdentifier.map { "PID \($0)" }
-                            ?? (liveOutput.isRunning ? "Launching..." : "Detached")
-                    )
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    Text(liveProcessLabel(liveOutput))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Text("Elapsed \(elapsedText(from: liveOutput.startedAt, to: liveOutput.isRunning ? now : liveOutput.lastUpdatedAt))")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 } else if let persistedState {
                     StatusBadge(state: persistedState.executionState)
                 }
@@ -79,6 +87,14 @@ struct PhaseOutputPane: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if let liveOutput {
+                Text("\(liveOutput.providerKind.title) | \(liveOutput.model) | \(liveOutput.origin.displayTitle)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             if persistedState?.executionState == .running {
@@ -116,14 +132,15 @@ struct PhaseOutputPane: View {
 
     private func displayText(
         liveOutput: AppStore.LivePhaseOutput?,
-        persistedState: TicketPhaseState?
+        persistedState: TicketPhaseState?,
+        now: Date
     ) -> String {
         if let liveOutput {
             if liveOutput.combinedText.isEmpty == false {
                 return liveOutput.combinedText
             }
             if liveOutput.isRunning {
-                return "Waiting for process output..."
+                return runningPlaceholder(for: liveOutput, now: now)
             }
         }
 
@@ -144,9 +161,10 @@ struct PhaseOutputPane: View {
 
     private func visibleDisplayText(
         liveOutput: AppStore.LivePhaseOutput?,
-        persistedState: TicketPhaseState?
+        persistedState: TicketPhaseState?,
+        now: Date
     ) -> String {
-        displayText(liveOutput: liveOutput, persistedState: persistedState)
+        displayText(liveOutput: liveOutput, persistedState: persistedState, now: now)
             .liveOutputTail(maxCharacters: maxVisibleCharacters)
     }
 
@@ -181,6 +199,45 @@ struct PhaseOutputPane: View {
             return "This phase has a recorded process PID \(ownedProcess.processIdentifier). Terminate will verify ownership before sending signals."
         }
         return ""
+    }
+
+    private func runningPlaceholder(for liveOutput: AppStore.LivePhaseOutput, now: Date) -> String {
+        let provider = liveOutput.providerKind.title
+        let process = liveProcessLabel(liveOutput)
+        let outputStatus = liveOutput.providerKind == .claude
+            ? "Claude is running but has not emitted output yet."
+            : "The agent process is running but has not emitted output yet."
+
+        return """
+        \(outputStatus)
+
+        Provider: \(provider)
+        Model: \(liveOutput.model)
+        Origin: \(liveOutput.origin.displayTitle)
+        Process: \(process)
+        Elapsed: \(elapsedText(from: liveOutput.startedAt, to: now))
+        Started: \(liveOutput.startedAt.formatted(date: .numeric, time: .standard))
+        """
+    }
+
+    private func liveProcessLabel(_ liveOutput: AppStore.LivePhaseOutput) -> String {
+        liveOutput.processIdentifier.map { "PID \($0)" }
+            ?? (liveOutput.isRunning ? "Launching..." : "Detached")
+    }
+
+    private func elapsedText(from start: Date, to end: Date) -> String {
+        let seconds = max(0, Int(end.timeIntervalSince(start)))
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainingSeconds = seconds % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m \(remainingSeconds)s"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(remainingSeconds)s"
+        }
+        return "\(remainingSeconds)s"
     }
 }
 

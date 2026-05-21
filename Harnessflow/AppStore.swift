@@ -20,6 +20,9 @@ final class AppStore: ObservableObject {
     struct LivePhaseOutput: Equatable, Sendable {
         let ticketID: UUID
         let phase: TicketPhase
+        let providerKind: AgentProviderKind
+        let model: String
+        let origin: AgentRunOrigin
         var processIdentifier: Int32?
         var startedAt: Date
         var lastUpdatedAt: Date
@@ -28,9 +31,19 @@ final class AppStore: ObservableObject {
         var combinedText: String
         var isRunning: Bool
 
-        init(ticketID: UUID, phase: TicketPhase, startedAt: Date) {
+        init(
+            ticketID: UUID,
+            phase: TicketPhase,
+            providerKind: AgentProviderKind,
+            model: String,
+            origin: AgentRunOrigin,
+            startedAt: Date
+        ) {
             self.ticketID = ticketID
             self.phase = phase
+            self.providerKind = providerKind
+            self.model = model
+            self.origin = origin
             self.processIdentifier = nil
             self.startedAt = startedAt
             self.lastUpdatedAt = startedAt
@@ -1281,6 +1294,9 @@ final class AppStore: ObservableObject {
         livePhaseOutputs[key] = LivePhaseOutput(
             ticketID: request.ticketID,
             phase: request.phase,
+            providerKind: settings.selectedProviderKind,
+            model: request.model,
+            origin: request.origin,
             startedAt: startedAt
         )
     }
@@ -1392,6 +1408,9 @@ final class AppStore: ObservableObject {
         livePhaseOutputs[key] = LivePhaseOutput(
             ticketID: request.ticketID,
             phase: request.phase,
+            providerKind: settings.selectedProviderKind,
+            model: request.model,
+            origin: request.origin,
             startedAt: livePhaseOutputs[key]?.startedAt ?? .now
         )
     }

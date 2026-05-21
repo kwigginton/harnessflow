@@ -157,7 +157,8 @@ public struct TicketReducer: Sendable {
     private func startRun(
         _ ticket: Ticket,
         context: TicketReducerContext,
-        answers: [AgentAnswer]?
+        answers: [AgentAnswer]?,
+        origin: AgentRunOrigin = .manual
     ) throws -> TicketReducerResult {
         let request: AgentRunRequest
         if let answers {
@@ -181,7 +182,8 @@ public struct TicketReducer: Sendable {
         request = try requestBuilder.makeRequest(
             for: ticket,
             settings: context.settings,
-            workingDirectoryOverride: context.workingDirectoryOverride
+            workingDirectoryOverride: context.workingDirectoryOverride,
+            origin: origin
         )
         return markRunning(ticket, request: request, startedAt: context.now)
     }
@@ -400,7 +402,12 @@ public struct TicketReducer: Sendable {
             }
 
             do {
-                return try startRun(shifted.ticket, context: context, answers: nil)
+                return try startRun(
+                    shifted.ticket,
+                    context: context,
+                    answers: nil,
+                    origin: .autoAdvance(from: request.phase)
+                )
             } catch {
                 return TicketReducerResult(
                     ticket: shifted.ticket,

@@ -70,6 +70,9 @@ struct TicketReducerTests {
             "-p",
             "--model", "claude-sonnet-4-5",
             "--permission-mode", "acceptEdits",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--include-partial-messages",
         ])
         #expect(invocation.currentDirectory == "/tmp/project")
         #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
@@ -113,6 +116,9 @@ struct TicketReducerTests {
             "-p",
             "--model", "sonnet",
             "--permission-mode", "plan",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--include-partial-messages",
         ])
         #expect(invocation.currentDirectory == "/tmp/project")
         #expect(invocation.environment["PATH"] == "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
@@ -255,6 +261,7 @@ struct TicketReducerTests {
         #expect(runningState.lastStartedAt == startedAt)
         #expect(runningState.ownedProcess == nil)
         #expect(request.phase == .plan)
+        #expect(request.origin == .manual)
         #expect(request.prompt.contains("Plan base prompt"))
         #expect(request.prompt.contains("Title: Execution"))
         #expect(request.prompt.contains("Update persistence flow"))
@@ -361,6 +368,7 @@ struct TicketReducerTests {
         #expect(request.prompt.contains("direction: Fast path"))
         #expect(request.prompt.contains("Use the fast path."))
         #expect(request.prompt.contains(PhaseDeliverableContract.startMarker))
+        #expect(request.origin == .continuation)
         #expect(result.ticket.phaseState(for: .plan).executionState == .running)
     }
 
@@ -751,6 +759,7 @@ struct TicketReducerTests {
         #expect(result.ticket.phaseState(for: .research).runs.count == 1)
         #expect(result.ticket.phaseState(for: .plan).executionState == .running)
         #expect(planRequest.phase == .plan)
+        #expect(planRequest.origin == .autoAdvance(from: .research))
         #expect(planRequest.prompt.contains("Plan base prompt"))
         #expect(planRequest.prompt.contains("## Research"))
         #expect(planRequest.prompt.contains("## Done"))
@@ -762,6 +771,76 @@ struct TicketReducerTests {
             .beginLiveOutput(request: planRequest, startedAt: completedAt),
             .runAgent(planRequest),
         ])
+    }
+
+    @Test
+    func autoShiftFromPlanToImplementMarksAutoAdvanceOriginAndUsesClaudeModel() throws {
+        var ticket = Ticket(title: "Claude auto", column: .plan, autoShiftOnSuccess: true)
+        let request = AgentRunRequest(
+            ticketID: ticket.id,
+            phase: .plan,
+            prompt: "Plan",
+            model: "sonnet-plan",
+            workingDirectory: "/tmp"
+        )
+        let completedAt = Date(timeIntervalSince1970: 4_050)
+        let agentResult = AgentRunResult(
+            output: """
+            \(PhaseDeliverableContract.startMarker)
+            ## Plan Complete
+            - Implement the change.
+            \(PhaseDeliverableContract.endMarker)
+            """,
+            errorOutput: "",
+            startedAt: .distantPast,
+            completedAt: completedAt,
+            exitCode: 0
+        )
+        var plan = ticket.phaseState(for: .plan)
+        plan.executionState = .running
+        ticket.updatePhaseState(plan)
+
+        let settings = AppSettings(
+            selectedProviderKind: .claude,
+            defaultWorkingDirectory: "/tmp/workdir",
+            phaseModels: PhaseModelSelection(
+                research: "sonnet-research",
+                plan: "sonnet-plan",
+                implement: "sonnet-implement",
+                review: "sonnet-review"
+            ),
+            phasePrompts: PhasePromptSelection(
+                research: "Research base prompt",
+                plan: "Plan base prompt",
+                implement: "Implement base prompt",
+                review: "Review base prompt"
+            )
+        )
+
+        let result = reduce(
+            ticket,
+            event: .agentResultReceived(
+                request: request,
+                result: agentResult,
+                providerKind: .claude,
+                authMethod: .unknown,
+                authMethodDescription: "Claude Subscription",
+                didFallbackFromSubscription: false
+            ),
+            settings: settings,
+            now: completedAt
+        )
+        let implementRequest = try runRequest(from: result.commands)
+
+        #expect(result.ticket.column == .implement)
+        #expect(result.ticket.phaseState(for: .plan).executionState == .completed)
+        #expect(result.ticket.phaseState(for: .implement).executionState == .running)
+        #expect(implementRequest.phase == .implement)
+        #expect(implementRequest.origin == .autoAdvance(from: .plan))
+        #expect(implementRequest.model == "sonnet-implement")
+        #expect(implementRequest.prompt.contains("Implement base prompt"))
+        #expect(implementRequest.prompt.contains("## Plan"))
+        #expect(implementRequest.prompt.contains("## Plan Complete"))
     }
 
     @Test

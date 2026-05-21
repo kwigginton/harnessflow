@@ -20,7 +20,8 @@ public struct TicketRunRequestBuilder: Sendable {
     public func makeRequest(
         for ticket: Ticket,
         settings: AppSettings,
-        workingDirectoryOverride: String? = nil
+        workingDirectoryOverride: String? = nil,
+        origin: AgentRunOrigin = .manual
     ) throws -> AgentRunRequest {
         let phase = ticket.column
         let phaseState = ticket.phaseState(for: phase)
@@ -48,7 +49,8 @@ public struct TicketRunRequestBuilder: Sendable {
             ),
             promptAddendum: phaseState.prompt,
             model: settings.resolvedModel(for: phase),
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            origin: origin
         )
     }
 
@@ -84,7 +86,8 @@ public struct TicketRunRequestBuilder: Sendable {
             ),
             promptAddendum: phaseState.prompt,
             model: settings.resolvedModel(for: phase),
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            origin: .continuation
         )
     }
 
